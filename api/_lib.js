@@ -1,4 +1,6 @@
 // Shared serverless helpers: Neon connection, sessions, password hashing, validation.
+// Handlers use the Node (request, response) signature — supported by every Vercel
+// Node runtime, unlike returning a Response (which hangs the connection here).
 import { Pool } from 'pg';
 
 let pool;
@@ -11,11 +13,27 @@ export function db() {
   return pool;
 }
 
-export const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
-  status,
-  headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
-});
-export const fail = (message, status = 400) => json({ error: message }, status);
+export function json(response, data, status = 200, headers = {}) {
+  response.statusCode = status;
+  for (const [key, value] of Object.entries({ 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers })) {
+    response.setHeader(key, value);
+  }
+  response.end(JSON.stringify(data));
+}
+export const fail = (response, message, status = 400) => json(response, { error: message }, status);
+
+export async function readJson(request) {
+  if (typeof request.json === 'function') return request.json(); // Web Request (tests)
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString('utf8');
+  return text ? JSON.parse(text) : {};
+}
+
+export function getCookie(request, name) {
+  const raw = typeof request.headers?.get === 'function' ? request.headers.get('cookie') : request.headers?.cookie;
+  return raw?.match(new RegExp(`${name}=([^;]+)`))?.[1] ?? null;
+}
 
 export function timingSafeEqual(a, b) {
   const ab = new TextEncoder().encode(a);
@@ -36,10 +54,9 @@ export async function hashPassword(password, salt = crypto.getRandomValues(new U
 }
 
 export async function verifyPassword(password, stored) {
-  const [scheme, iterations, saltHexValue, hash] = stored.split('$');
+  const [scheme, iterations, saltHexValue, hash] = String(stored).split('$');
   if (scheme !== 'pbkdf2' || !saltHexValue || !hash) return false;
-  const salt = Uint8Array.from(saltHexValue.match(/../g).map(h => parseInt(h, 16)));
-  const candidate = await hashPassword(password, salt);
+  const candidate = await hashPassword(password, Uint8Array.from(saltHexValue.match(/../g).map(h => parseInt(h, 16))));
   return timingSafeEqual(candidate, stored);
 }
 
@@ -68,9 +85,9 @@ export function sessionCookie(token, expiresAt) {
 export const clearSessionCookie = () => `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 
 export async function requireUser(request) {
-  const match = (request.headers.get('cookie') ?? '').match(new RegExp(`${SESSION_COOKIE}=([^;]+)`));
-  if (!match) return null;
-  const tokenHash = await hashToken(match[1]);
+  const token = getCookie(request, SESSION_COOKIE);
+  if (!token) return null;
+  const tokenHash = await hashToken(token);
   const { rows } = await db().query(
     `select u.id, u.email, u.username, u.name, u.city, u.avatar, u.roles, u.interests, u.skills, u.needs,
             u.availability, u.experience, u.privacy, u.is_admin, u.suspended, u.created_at
@@ -92,9 +109,9 @@ export function publicUser(row) {
 
 /** Reject cross-origin unsafe requests (defense in depth alongside SameSite=Lax). */
 export function sameOrigin(request) {
-  const origin = request.headers.get('origin');
-  if (!origin) return true; // non-browser clients (curl, tests) — cookie auth still required
-  try { return new URL(origin).host === new URL(request.url).host; } catch { return false; }
+  const origin = request.headers?.origin ?? (typeof request.headers?.get === 'function' ? request.headers.get('origin') : null);
+  if (!origin) return true; // non-browser clients — cookie auth still required
+  try { return new URL(origin).host === new URL(request.url, 'https://placeholder.local').host; } catch { return false; }
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
