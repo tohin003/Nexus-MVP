@@ -1,0 +1,19 @@
+{
+  "name": "nexus-mvp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "cd app && npm run build",
+    "test": "cd app && npm test",
+    "test:e2e": "cd app && npm run test:e2e",
+    "db:migrate": "node scripts/migrate.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "zod": "^4.6.5"
+  }
+}
