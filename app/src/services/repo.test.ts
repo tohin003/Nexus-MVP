@@ -390,6 +390,56 @@ describe('circles posts notifications privacy', () => {
     expect(() => posts.icanHelp(post.id)).toThrow(/someone else/i);
   });
 
+  it('posts.remove deletes an author’s post and embedded activity, leaving other state intact', () => {
+    const baseline = db.getState().posts;
+    const post = posts.create('share', 'Delete my post', 'Body');
+    posts.react(post.id, 'useful');
+    posts.comment(post.id, 'A comment on my post');
+    const postReport = reports.file('post', post.id, 'Spam');
+    const otherReport = reports.file('post', baseline[0].id, 'Spam');
+    const notificationsBefore = db.getState().notifications;
+
+    posts.remove(post.id);
+
+    expect(db.getState().posts).toEqual(baseline);
+    expect(db.getState().posts.some((item) => item.id === post.id)).toBe(false);
+    expect(db.getState().reports.some((item) => item.id === postReport.id)).toBe(false);
+    expect(db.getState().reports).toContainEqual(otherReport);
+    expect(db.getState().notifications).toEqual(notificationsBefore);
+    expect(() => posts.react(post.id, 'support')).toThrow(/not available/i);
+    expect(() => posts.comment(post.id, 'Gone')).toThrow(/not available/i);
+  });
+
+  it('posts.remove rejects non-authors and missing posts without mutating state', () => {
+    const otherPost = db.getState().posts.find((item) => item.userId !== 'me')!;
+    const before = exportState();
+    expect(() => posts.remove(otherPost.id)).toThrow('You can only delete your own posts.');
+    expect(() => posts.remove('missing-post')).toThrow('This post could not be found.');
+    expect(exportState()).toBe(before);
+  });
+
+  it('posts.remove requires a signed-in, unsuspended author', () => {
+    const post = posts.create('share', 'Protected post', 'Body');
+    auth.signOut();
+    expect(() => posts.remove(post.id)).toThrow(/sign in/i);
+    signIn();
+    db.setState((state) => ({ users: state.users.map((item) => item.id === state.meId ? { ...item, suspended: true } : item) }));
+    expect(() => posts.remove(post.id)).toThrow(/suspended/i);
+    expect(db.getState().posts.some((item) => item.id === post.id)).toBe(true);
+  });
+
+  it('posts.remove persists deletion across importState', () => {
+    const post = posts.create('share', 'Gone after import', 'Body');
+    const before = exportState();
+    posts.remove(post.id);
+    const persisted = memoryStore.getItem(STORAGE_KEY)!;
+    expect(JSON.parse(persisted).posts.some((item: { id: string }) => item.id === post.id)).toBe(false);
+    importState(before);
+    expect(db.getState().posts.some((item) => item.id === post.id)).toBe(true);
+    importState(persisted);
+    expect(db.getState().posts.some((item) => item.id === post.id)).toBe(false);
+  });
+
   it('notifications.markAllRead reads everything', () => {
     expect(db.getState().notifications.some((item) => !item.read)).toBe(true);
     notifications.markAllRead();

@@ -446,6 +446,17 @@ export const posts = {
     mutate((state) => ({ posts: [post, ...state.posts], analyticsEvents: track(state, 'post_created', { postId: post.id, kind }) }));
     return post;
   },
+  remove(id: string): void {
+    const actor = requireActor();
+    const post = db.getState().posts.find((item) => item.id === id);
+    if (!post) throw new Error('This post could not be found.');
+    if (post.userId !== actor.id) throw new Error('You can only delete your own posts.');
+    // Reactions, comments and help live on the post; notifications do not reference posts.
+    mutate((state) => ({
+      posts: state.posts.filter((item) => item.id !== id),
+      reports: state.reports.filter((item) => !(item.targetKind === 'post' && item.targetId === id)),
+    }));
+  },
   react(id: string, reaction: Reaction): Post {
     const post = accessiblePost(id);
     if (!['useful', 'interesting', 'lets-do-it', 'support'].includes(reaction)) throw new Error('Choose a supported reaction.');
