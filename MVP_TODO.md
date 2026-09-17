@@ -32,10 +32,15 @@
       specs) against the production build.
 
 ## Next (not started)
-- [ ] Real-account E2E verified against live production (spec written, run pending deploy).
+- [x] Real-account E2E verified against live production (specs run through the dev
+      /api proxy to the deployed functions; production curl acceptance re-verified:
+      signup 201 with profile fields → availability → me → signout → 401).
+- [x] Profile polish per feedback: avatar URL/hue controls removed (upload only),
+      story batches grouped one ring per user, tappable Posts/Followers/Following
+      drill-downs, delete own posts.
 - [ ] Server-side content APIs: feed, posts, stories, circles, DMs with server ACL
       (BACKEND_PLAN.md phases 2+); client API adapter beyond auth.
-- [ ] Server sync for follows/connections (currently device-local, honestly labeled).
+- [ ] Server sync for follows/connections/posts (currently device-local, honestly labeled).
 - [ ] Owner token rotation (VERCEL_TOKEN shared in chat earlier).
 
 ## Verified non-goals (unchanged)
