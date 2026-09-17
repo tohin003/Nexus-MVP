@@ -1,8 +1,9 @@
-import { db, getDatabaseGeneration } from '../repo/db';
+import { db, getDatabaseGeneration, preflightMedia } from '../repo/db';
+import { isUploadedImage, validateMedia } from './image';
 import type { AnalyticsEvent, AppState } from '../repo/db';
 import type {
   Circle, ConnectionRequest, Conversation, Intent, IntentInterpretation, Message,
-  Notification, Post, PostKind, Privacy, Reaction, Report, User,
+  Notification, Post, PostKind, Privacy, Reaction, Report, Story, User,
 } from '../domain/types';
 import { interpretIntent, matchPeople, introduction } from './intelligence';
 
@@ -21,8 +22,16 @@ function requireActor(state = db.getState()): User {
 }
 type StateUpdate = AppState | Partial<AppState> | ((state: AppState) => AppState | Partial<AppState>);
 function mutate(update: StateUpdate) {
-  requireActor();
-  db.setState(update);
+  const before = db.getState();
+  requireActor(before);
+  const next = { ...before, ...(typeof update === 'function' ? update(before) : update) };
+  // Compare each record, not total bytes: replacing a photo with a smaller one
+  // still needs a real quota check before callers may clear their draft.
+  const addedMedia = next.users.some((user) => isUploadedImage(user.avatar) && user.avatar !== before.users.find((item) => item.id === user.id)?.avatar)
+    || next.posts.some((post) => post.photo && post.photo !== before.posts.find((item) => item.id === post.id)?.photo)
+    || next.stories.some((story) => isUploadedImage(story.photo) && story.photo !== before.stories.find((item) => item.id === story.id)?.photo);
+  if (addedMedia) preflightMedia(next);
+  db.setState(next);
 }
 function person(id: string, state = db.getState()): User {
   const user = state.users.find((item) => item.id === id);
@@ -61,6 +70,7 @@ function profileFields(fields: ProfileFields): ProfileFields {
     const value = fields[key];
     if (value !== undefined) Object.assign(clean, { [key]: Array.isArray(value) ? [...new Set(value)] : value });
   }
+  if (clean.avatar !== undefined && clean.avatar !== '' && clean.avatar !== me().avatar) validateMedia(clean.avatar);
   if (clean.name !== undefined) clean.name = required(clean.name, 'Name', 100);
   if (clean.username !== undefined) {
     clean.username = required(clean.username, 'Username', 40).replace(/^@/, '');
@@ -378,13 +388,14 @@ function accessiblePost(id: string): Post {
   return post;
 }
 export const posts = {
-  create(kind: PostKind, title: string, body: string, tags: string[] = [], circleId: string | null = null, structured?: Post['structured']): Post {
+  create(kind: PostKind, title: string, body: string, tags: string[] = [], circleId: string | null = null, structured?: Post['structured'], photo?: string): Post {
+    if (photo !== undefined) validateMedia(photo);
     if (!['share', 'ask', 'collaborate', 'teach', 'challenge', 'meet'].includes(kind)) throw new Error('Choose a supported post type.');
     if (circleId) {
       const circle = db.getState().circles.find((item) => item.id === circleId);
       if (!circle?.memberIds.includes(db.getState().meId)) throw new Error('Join the circle before posting.');
     }
-    const post: Post = { id: uid('post'), userId: db.getState().meId, kind, title: required(title, 'Post title', 200), body: required(body, 'Post body'), tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 12), circleId, createdAt: now(), structured: structured ? { ...structured, skillsNeeded: [...structured.skillsNeeded] } : undefined, reactions: { useful: 0, interesting: 0, 'lets-do-it': 0, support: 0 }, myReaction: null, comments: [], helpedBy: [], iCanHelp: false };
+    const post: Post = { id: uid('post'), userId: db.getState().meId, kind, title: required(title, 'Post title', 200), body: required(body, 'Post body'), ...(photo === undefined ? {} : { photo }), tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 12), circleId, createdAt: now(), structured: structured ? { ...structured, skillsNeeded: [...structured.skillsNeeded] } : undefined, reactions: { useful: 0, interesting: 0, 'lets-do-it': 0, support: 0 }, myReaction: null, comments: [], helpedBy: [], iCanHelp: false };
     mutate((state) => ({ posts: [post, ...state.posts], analyticsEvents: track(state, 'post_created', { postId: post.id, kind }) }));
     return post;
   },
@@ -414,6 +425,42 @@ export const posts = {
     return updated;
   },
 };
+export const stories = {
+  /** Pure filtered view, shared by the UI and repository access checks. */
+  list(state = db.getState(), at = now()): Story[] {
+    if (!state.signedIn || me(state).suspended) return [];
+    return state.stories.filter((story) => {
+      const author = state.users.find((user) => user.id === story.userId);
+      return story.createdAt <= at && story.expiresAt > at && !!author && !author.suspended
+        && !blocked(author.id, state) && !muted(author.id, state)
+        && (author.id === state.meId || author.privacy.discoverable);
+    }).sort((a, b) => b.createdAt - a.createdAt);
+  },
+  create(photo: string, caption = ''): Story {
+    requireActor();
+    validateMedia(photo);
+    if (caption.length > 280) throw new Error('Moment caption must be 280 characters or fewer.');
+    const timestamp = now();
+    const story: Story = { id: uid('moment'), userId: db.getState().meId, photo, caption: caption.trim(), createdAt: timestamp, expiresAt: timestamp + 86_400_000, seenByMe: false };
+    mutate((state) => ({ stories: [story, ...state.stories.filter((item) => item.expiresAt > timestamp)], analyticsEvents: track(state, 'moment_created', { storyId: story.id }) }));
+    return story;
+  },
+  markSeen(id: string): void {
+    requireActor();
+    const story = stories.list().find((item) => item.id === id);
+    if (!story) throw new Error('This Moment has expired or is no longer available.');
+    if (story.seenByMe) return;
+    mutate((state) => ({ stories: state.stories.map((item) => item.id === id ? { ...item, seenByMe: true } : item) }));
+  },
+  delete(id: string): void {
+    const actor = requireActor();
+    const story = db.getState().stories.find((item) => item.id === id);
+    if (!story) throw new Error('This Moment could not be found.');
+    if (story.userId !== actor.id) throw new Error('You can only delete your own Moments.');
+    mutate((state) => ({ stories: state.stories.filter((item) => item.id !== id) }));
+  },
+};
+
 export const notifications = {
   markAllRead() { mutate((state) => ({ notifications: state.notifications.map((item) => ({ ...item, read: true })) })); },
 };
@@ -505,5 +552,5 @@ export const moderation = {
 };
 
 /** UI-facing repository: all writes above flow through the single vanilla store. */
-export const repo = { auth, completeOnboarding, profile, intents, connections, messages, blocks, mutes, reports, circles, posts, notifications, privacy, moderation };
+export const repo = { auth, completeOnboarding, profile, intents, connections, messages, blocks, mutes, reports, circles, posts, stories, notifications, privacy, moderation };
 export default repo;

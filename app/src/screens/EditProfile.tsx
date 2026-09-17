@@ -6,6 +6,8 @@ import { INTERESTS, SKILLS, AVAILABILITY_LABELS, CITIES, interestLabel, skillLab
 import { useMe, useNexus } from '../repo/store';
 import { profile } from '../services/repo';
 import { navigate } from '../routerStore';
+import { ImageUpload } from '../components/ImageUpload';
+import { isUploadedImage } from '../services/image';
 
 type Draft = Pick<User, 'name' | 'username' | 'headline' | 'avatar' | 'accentHue' | 'city' | 'bio' | 'currently' | 'roles' | 'interests' | 'skills' | 'needs' | 'availability' | 'experience'>;
 const ROLES: Role[] = ['student', 'creator', 'founder', 'freelancer', 'professional', 'developer', 'designer', 'artist', 'educator', 'explorer'];
@@ -31,6 +33,7 @@ export function EditProfile() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const [discard, setDiscard] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const dirty = JSON.stringify(draft) !== baseline;
@@ -48,7 +51,7 @@ export function EditProfile() {
     if (draft.roles.length === 0) { setError('Choose at least one role to describe yourself.'); return; }
     if (!Number.isFinite(draft.accentHue) || draft.accentHue < 0 || draft.accentHue > 360) { setError('Choose an avatar color between 0 and 360.'); return; }
     const avatar = draft.avatar.trim();
-    if (avatar && !avatar.startsWith('gradient') && !avatar.startsWith('/') && !/^https?:\/\//i.test(avatar)) { setError('Use an image URL beginning with https://, a local path beginning with /, or leave the avatar blank for initials.'); return; }
+    if (avatar && !isUploadedImage(avatar) && !avatar.startsWith('gradient') && !avatar.startsWith('/') && !/^https?:\/\//i.test(avatar)) { setError('Use an image URL beginning with https://, a local path beginning with /, or leave the avatar blank for initials.'); return; }
     setSaving(true);
     try {
       const saved = await profile.update({ ...draft, name: draft.name.trim(), username, headline: draft.headline.trim(), city: draft.city.trim(), bio: draft.bio.trim(), currently: draft.currently.trim(), avatar });
@@ -64,6 +67,7 @@ export function EditProfile() {
       <form noValidate onSubmit={save} className="space-y-5">
         <fieldset disabled={saving} className="card space-y-4 p-5"><legend className="sr-only">Identity</legend><h2 className="flex items-center gap-2 font-semibold"><UserRound size={19} />Your identity</h2>
           <div className="flex items-center gap-4"><span className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-3xl text-2xl font-bold text-white" style={{ background: `linear-gradient(145deg,hsl(${draft.accentHue} 60% 65%),hsl(${draft.accentHue + 35} 55% 38%))` }}>{avatarImage ? <img className="h-full w-full object-cover" src={draft.avatar} alt="Profile preview" onError={() => setImageFailed(true)} /> : draft.name.trim().split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || <UserRound size={30} />}</span><div className="min-w-0"><p className="truncate font-semibold">{draft.name || 'Your name'}</p><p className="text-xs text-[var(--text-2)]">A little more you.</p></div></div>
+          <ImageUpload label="Upload profile photo" variant="avatar" value={draft.avatar} onBusyChange={setImageBusy} onChange={value => { setImageFailed(false); update('avatar', value); }} />
           <label className="block text-sm font-medium">Name <span className="text-[var(--danger)]">*</span><input className="input mt-2" autoComplete="name" required maxLength={100} value={draft.name} onChange={event => update('name', event.target.value)} /></label>
           <label className="block text-sm font-medium">Username <span className="text-[var(--danger)]">*</span><input className="input mt-2" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={40} value={draft.username} onChange={event => update('username', event.target.value)} /><span className="mt-1 block text-xs font-normal text-[var(--text-2)]">Your unique handle, without the @.</span></label>
           <label className="block text-sm font-medium">Headline<input className="input mt-2" maxLength={160} placeholder="Video editor · Curious builder" value={draft.headline} onChange={event => update('headline', event.target.value)} /></label>
@@ -78,7 +82,7 @@ export function EditProfile() {
         <fieldset disabled={saving} className="card space-y-4 p-5"><legend className="sr-only">Help you need</legend><div className="flex items-center gap-2 text-[var(--accent-text)]"><Sparkles size={20} /><span className="eyebrow">I’m looking for</span></div><Selection label="Needs" hint="What could you use help with? This makes matching a two-way exchange." options={SKILLS} selected={draft.needs} onChange={value => update('needs', value)} labelFor={skillLabel} /></fieldset>
         {error && <p role="alert" className="rounded-xl bg-[var(--danger-soft)] p-4 text-sm text-[var(--danger)]">{error}</p>}
         {success && <div role="status" className="space-y-3 rounded-xl bg-[var(--accent-soft)] p-4 text-sm text-[var(--accent-text)]"><p className="flex items-start gap-2"><Check size={18} className="shrink-0" />{success}</p><button type="button" className="btn btn-secondary w-full" onClick={() => navigate('me')}>View my profile</button></div>}
-        <div className="space-y-3"><button type="submit" className="btn btn-primary w-full" disabled={saving || !dirty}><Save size={18} />{saving ? 'Saving…' : 'Save profile'}</button><button type="button" className="btn btn-secondary w-full" disabled={saving} onClick={leave}>{dirty ? 'Cancel changes' : 'Back to my profile'}</button><button type="button" className="btn btn-ghost w-full !text-sm" disabled={saving || dirty} onClick={() => navigate('settings')}>Privacy & account settings</button>{dirty && <p className="text-center text-xs text-[var(--text-2)]">Save or cancel your changes before opening settings.</p>}</div>
+        <div className="space-y-3"><button type="submit" className="btn btn-primary w-full" disabled={saving || imageBusy || !dirty}><Save size={18} />{saving ? 'Saving…' : 'Save profile'}</button><button type="button" className="btn btn-secondary w-full" disabled={saving} onClick={leave}>{dirty ? 'Cancel changes' : 'Back to my profile'}</button><button type="button" className="btn btn-ghost w-full !text-sm" disabled={saving || dirty} onClick={() => navigate('settings')}>Privacy & account settings</button>{dirty && <p className="text-center text-xs text-[var(--text-2)]">Save or cancel your changes before opening settings.</p>}</div>
       </form>
     </>}
   </main>;

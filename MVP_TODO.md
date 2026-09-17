@@ -15,6 +15,7 @@
 - [x] Theme controls (light/dark/system) and responsive mobile frame + desktop.
 - [x] 78 unit/integration tests; 22 browser E2E green against production build.
 - [x] README, decisions, failure/test evidence and migration handoff.
+- [x] Media: profile photo upload, photo posts, Moments stories, horizontal rails.
 
 ## Verified non-goals (unchanged)
-No payments, dating, reels/stories, marketplace, voice/video, realtime server, external AI.
+No payments, dating, marketplace, voice/video, realtime server, external AI.

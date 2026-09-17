@@ -1,18 +1,23 @@
 # Validation report — final
 
-**Result: all requested acceptance checks executed and passing on 2026-09-17.**
+**Result: all requested acceptance checks executed and passing on 2026-09-17. Media update (same day): profile photo upload, photo posts, Moments stories and horizontal rails implemented and validated — 89/89 unit, 24/24 E2E, build clean.**
+
+## Media feature evidence (2026-09-17 update)
+
+- `e2e/media.spec.ts` (2 tests): profile photo upload → client resize (300px source kept un-enlarged) → preview → save → survives reload → invalid-file rejection (`bad.txt` shows JPEG/PNG/WebP alert) → removal persists after reload. Photo post: attach → preview → publish → renders in own Home feed (`alt="Photo for …"`) → survives reload; suggested-people rail verified horizontally scrollable (`scrollWidth > clientWidth`, scrolls, no document-level overflow).
+- Stories API unit tests (`src/services/stories.test.ts`, 11 new): auth-gating, 24h expiry, seen-state, own-delete, invalid media rejection, v1→stories migration, post photo validation.
+- New layout-exemption rule: only `aria-label="Suggested people"` / `"Recent Moments"` rails with `overflow-x: auto` may scroll horizontally; any other nested overflow still fails.
+- Client-side resize verified end-to-end: canvas → JPEG data URL, avatar ≤384px / post ≤1200px, ~220 KB cap; quota preflight (write-then-commit) keeps drafts intact when storage is full.
 
 ## Commands (final versions, all exit 0)
 
 | Command | Result |
 | --- | --- |
-| `npm run build` | tsc clean; 1918 modules; CSS 32.82 kB, seed 34.23 kB, main 441.44 kB (gzip 127.39 kB) |
-| `npm test` | **78/78** (intelligence 34, repo 40, entry 4) in ~0.25 s |
-| `npm run lint` | oxlint: 0 errors, 10 advisory warnings (React-Compiler purity/refs notes on deterministic `Date.now()` filters, a render-time ref mirror, single-effect state resets) |
+| `npm run build` | tsc clean; 1920 modules; CSS 31.18 kB, seed 34.79 kB, main 455.42 kB (gzip 131.32 kB) |
+| `npm test` | **89/89** (intelligence 34, repo 51 incl. 11 media/story, entry 4) |
+| `npm run lint` | oxlint: 0 errors, 9 advisory warnings |
 | `npm audit` | 0 known vulnerabilities |
-| `npm run test:e2e` (dev server) | **22/22** in 50.7 s |
-| `npm run test:e2e` vs production `vite preview` | **22/22** in 34.8 s — final gate |
-| Layout matrix (in the 22) | 12/12: light+dark × 375/390/393/412/430/1440, 312 route audits + 24 keyboard dialog checks, 0 console errors, 0 image failures, 0 horizontal overflow |
+| `npm run test:e2e` | **24/24** (22 original + 2 media) in ~25 s vs production `vite preview` |
 
 ## Browser acceptance evidence (Chromium, DOM/geometry — no visual claims)
 

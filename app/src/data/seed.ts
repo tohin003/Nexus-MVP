@@ -440,11 +440,17 @@ export const seedProjects: CircleProject[] = [
 
 /** Return isolated mutable state, so reset/demo sessions never mutate the fixtures. */
 export function buildSeed(): AppState {
+  const momentNow = Date.now();
   return structuredClone({
     version: 1, meId: 'me', signedIn: false, onboardingComplete: false,
     users: seedUsers, intents: seedIntents, requests: seedRequests,
     connections: seedConnections, conversations: seedConversations,
     messages: seedMessages, posts: seedPosts, circles: seedCircles,
+    stories: [
+      { id: 'moment-aarav', userId: 'aarav', photo: '/avatars/aarav.jpg', caption: 'A little creative energy for today. Illustrative demo portrait.', createdAt: momentNow - HOUR, expiresAt: momentNow - HOUR + DAY, seenByMe: false },
+      { id: 'moment-kabir', userId: 'kabir', photo: '/avatars/kabir.jpg', caption: 'Making time for a new perspective. Illustrative demo portrait.', createdAt: momentNow - 2 * HOUR, expiresAt: momentNow - 2 * HOUR + DAY, seenByMe: false },
+      { id: 'moment-ananya', userId: 'ananya', photo: '/avatars/ananya.jpg', caption: 'Small steps, thoughtful work. Illustrative demo portrait.', createdAt: momentNow - 3 * HOUR, expiresAt: momentNow - 3 * HOUR + DAY, seenByMe: true },
+    ],
     circleEvents: seedEvents, circleProjects: seedProjects,
     notifications: seedNotifications, reports: [], blockedUsers: [],
     mutedUsers: [], passedUserIds: [], analyticsEvents: [],

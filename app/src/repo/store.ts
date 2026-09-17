@@ -9,7 +9,7 @@ export { db, exportState, importState, resetDemo, STATE_VERSION, STORAGE_KEY } f
 export type { AppState, AnalyticsEvent } from './db';
 export {
   auth, completeOnboarding, profile, intents, connections, messages, blocks, mutes,
-  reports, circles, posts, notifications, privacy, moderation, repo,
+  reports, circles, posts, stories, notifications, privacy, moderation, repo,
 } from '../services/repo';
 export type { ProfileFields, IntentOverrides, CircleFields } from '../services/repo';
 
@@ -65,6 +65,7 @@ export const actions = {
   reports: repo.reports,
   circles: repo.circles,
   posts: repo.posts,
+  stories: repo.stories,
   notifications: repo.notifications,
   privacy: repo.privacy,
   moderation: repo.moderation,

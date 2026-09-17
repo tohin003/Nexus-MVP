@@ -1,10 +1,10 @@
 # NEXUS MVP — Status
 
 ## Current checkpoint (2026-09-17, handoff)
-**MVP complete and validated.** Production build green; 78/78 unit/integration tests; 22/22 browser E2E green twice (dev server and production preview). All 16 checklist items in MVP_TODO.md are done with evidence in MVP_TEST_REPORT.md.
+**MVP complete and validated.** Production build green; 89/89 unit/integration tests; 24/24 browser E2E green against the production preview. All checklist items in MVP_TODO.md are done with evidence in MVP_TEST_REPORT.md.
 
-- Live verification: `npm run preview` serving dist at **http://127.0.0.1:4173/** (managed background job bash-26 at handoff; strict port — stop it before starting another server).
-- E2E suites: `e2e/core.spec.ts` (full acceptance loop), `e2e/secondary.spec.ts` (safety/privacy/moderation/reset), `e2e/layout.spec.ts` (12 viewport/theme combos, 312 route audits, dialog keyboard checks).
+- Media update (this session): profile photo upload (Edit profile), photo posts (Create + PostCard), "Moments" 24h stories with horizontal rail/viewer on Home, suggested-people horizontal rail; `vercel.json` added for root-directory Vercel deploys; local preview server stopped after final validation per handoff.
+- E2E suites: `e2e/core.spec.ts` (full acceptance loop), `e2e/secondary.spec.ts` (safety/privacy/moderation/reset), `e2e/layout.spec.ts` (12 viewport/theme combos with intentional-rail exemption), `e2e/media.spec.ts` (upload/resize/persist/remove + photo post + rail scroll).
 
 ## Late fixes (all validated by the final suite)
 - Onboarding hints moved outside `<label>` (accessible-name correctness).

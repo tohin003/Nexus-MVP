@@ -1,8 +1,9 @@
 import { createStore } from 'zustand/vanilla';
 import type {
   BlockedUser, Circle, CircleEvent, CircleProject, Connection, ConnectionRequest,
-  Conversation, Intent, Message, MutedUser, Notification, Post, Report, User,
+  Conversation, Intent, Message, MutedUser, Notification, Post, Report, Story, User,
 } from '../domain/types';
+import { isUploadedImage, validateMedia } from '../services/image';
 
 export const STATE_VERSION = 1 as const;
 export const STORAGE_KEY = 'nexus-mvp-state-v1';
@@ -24,6 +25,7 @@ export type AppState = {
   conversations: Conversation[];
   messages: Message[];
   posts: Post[];
+  stories: Story[];
   circles: Circle[];
   circleEvents: CircleEvent[];
   circleProjects: CircleProject[];
@@ -47,12 +49,33 @@ const strings = (value: unknown): value is string[] =>
 const rows = (value: unknown, fields: string[]) => Array.isArray(value) && value.every((row) =>
   isRecord(row) && fields.every((key) => typeof row[key] === 'string'));
 
+export const MEDIA_STATE_BUDGET = 1_800_000;
+// Only these existing, bundled portraits may appear in illustrative seed Moments.
+const demoPhotos = new Set(['/avatars/aarav.jpg', '/avatars/kabir.jpg', '/avatars/ananya.jpg']);
+
+/** Write the actual replacement key before committing media, so quota errors are atomic. */
+export function preflightMedia(state: AppState): void {
+  const json = JSON.stringify(state);
+  if (json.length > MEDIA_STATE_BUDGET) throw new Error('Demo photo storage is full. Delete a Moment or remove a photo before trying again. Your draft has not been saved.');
+  if (typeof window === 'undefined') return;
+  try {
+    const target = window.localStorage;
+    if (!target) throw new Error('Storage unavailable');
+    target.setItem(STORAGE_KEY, json);
+  } catch {
+    throw new Error('This browser could not save the photo. Storage may be full or disabled. Your draft is still here; free some space and try again.');
+  }
+}
+
 /** Reject incompatible/corrupt backups before replacing any live data. */
 function validate(value: unknown): asserts value is AppState {
   if (!isRecord(value) || value.version !== STATE_VERSION) {
     throw new Error('This backup is not a supported NEXUS version.');
   }
+  // Version 1 predates Moments: migrate only an absent table, never malformed data.
+  if (!Object.hasOwn(value, 'stories')) value.stories = [];
   const tableFields: Record<string, string[]> = {
+    stories: ['id', 'userId', 'photo', 'caption'],
     users: ['id', 'name', 'username'], intents: ['id', 'userId', 'originalText', 'title'],
     requests: ['id', 'fromUserId', 'toUserId', 'why', 'status'],
     connections: ['id', 'aUserId', 'bUserId'], conversations: ['id'],
@@ -93,6 +116,26 @@ function validate(value: unknown): asserts value is AppState {
     if (new Set(items.map((item) => item.id)).size !== items.length) {
       throw new Error(`The NEXUS backup contains duplicate ${key} IDs.`);
     }
+  }
+  for (const user of value.users as Record<string, unknown>[]) {
+    if (typeof user.avatar !== 'string') throw new Error('Invalid profile photo.');
+    if (user.avatar.startsWith('data:')) validateMedia(user.avatar);
+  }
+  for (const post of value.posts as Record<string, unknown>[]) {
+    if (post.photo !== undefined) {
+      if (typeof post.photo !== 'string') throw new Error('Invalid post photo.');
+      validateMedia(post.photo);
+    }
+  }
+  for (const story of value.stories as Record<string, unknown>[]) {
+    if (!users.some((user) => user.id === story.userId)
+      || typeof story.createdAt !== 'number' || !Number.isFinite(story.createdAt)
+      || typeof story.expiresAt !== 'number' || !Number.isFinite(story.expiresAt)
+      || story.expiresAt - story.createdAt !== 86_400_000
+      || typeof story.seenByMe !== 'boolean' || String(story.caption).length > 280) {
+      throw new Error('The NEXUS backup contains a malformed Moment.');
+    }
+    if (!demoPhotos.has(story.photo as string)) validateMedia(story.photo as string);
   }
 }
 
@@ -150,6 +193,9 @@ export function importState(input: string | unknown): AppState {
   // Clone object input as well: callers cannot mutate the store through a backup reference.
   const state: unknown = JSON.parse(typeof input === 'string' ? input : JSON.stringify(input));
   validate(state);
+  if (state.users.some((user) => isUploadedImage(user.avatar))
+    || state.posts.some((post) => post.photo !== undefined)
+    || state.stories.some((story) => isUploadedImage(story.photo))) preflightMedia(state);
   generation += 1;
   db.setState(state, true);
   return db.getState();

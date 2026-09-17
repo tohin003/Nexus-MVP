@@ -18,13 +18,19 @@ Open **http://127.0.0.1:4173/**. Port is strict: stop the existing NEXUS process
 cd app
 npm test                         # deterministic domain + repository tests
 npx playwright install chromium # first browser setup only
-npm run test:e2e                 # browser acceptance + responsive/safety flows
+npm run test:e2e                 # browser acceptance + responsive/safety/media flows
 npm run lint
 npm run build                   # TypeScript and production assets
 npm run preview                 # serve dist at :4173; stop dev first
 ```
 
 Playwright reuses :4173 when already running, or starts Vite itself. Generated traces/reports are excluded from the Vite watcher to prevent test-induced reload loops.
+
+## Deploy this client demo to Vercel
+
+Import `tohin003/Nexus-MVP` and leave **Root Directory at the repository root**. The committed `vercel.json` installs dependencies in `app`, runs its production build, and publishes `app/dist`. Use Node 24.x. No environment variables or API keys are needed. Navigation uses URL hashes, so no server route rewrites are needed.
+
+This deploys the interface, not a shared backend: each visitor gets independent browser-local demo data. Photos and messages do not sync between devices. Do not upload sensitive/client-confidential images to this demo. Clearing site data resets local content.
 
 ## Try the complete loop
 
@@ -44,7 +50,9 @@ Playwright reuses :4173 when already running, or starts Vite itself. Generated t
 - Explainable matching, profiles/Passport, request/accept/pass, atomic one-time introductions, chat history/starters/typing/receipts.
 - Home's finite daily briefing, Discover search and three categories, notification center.
 - Eight seeded Circles with membership, goal/timeline, discussions, people, projects and events. Circle creation and member publishing.
-- Share, Ask, Collaborate, Teach, Challenge and Meet; posts or matching intents; reactions, comments and help contributions.
+- Share, Ask, Collaborate, Teach, Challenge and Meet; posts or matching intents; reactions, comments and help contributions; optional photo attachment on posts.
+- "Moments" photo updates with 24-hour expiry, horizontal rail, add-your-own upload and manual viewer (a stories-style feature, not an Instagram clone).
+- Suggested people on Home scroll horizontally; profile photo upload in Edit profile (resized client-side, stored locally only).
 - Profile/theme/privacy editing, block/unblock, mute, reports, admin review/dismiss/warn/suspend, retained local analytics.
 - LocalStorage versioned persistence, import validation, export, seed reset, guarded mutations, error recovery and empty states.
 - 21 fictional personas with local portraits, 21 initial intents, 20 posts, 8 Circles, existing requests/chats/projects/events.
@@ -69,7 +77,7 @@ State key: `nexus-mvp-state-v1`; theme: `nexus-theme`; draft: `nexus-onboarding-
 
 ## Known limits and production path
 
-This is a single-browser demo, not production authentication, multiuser authorization, encryption, realtime delivery, push notifications, durable server storage or AI. The seed account is admin for exploration; that flag is not secure authorization. Closed/invite-only Circles gate content, but invite delivery is not implemented. Projects/events are seeded read views; propose new work in discussions. No payments, dating, infinite feed, short-form video, marketplace or voice/video.
+This is a single-browser demo, not production authentication, multiuser authorization, encryption, realtime delivery, push notifications, durable server storage or AI. The seed account is admin for exploration; that flag is not secure authorization. Closed/invite-only Circles gate content, but invite delivery is not implemented. Projects/events are seeded read views; propose new work in discussions. No payments, dating, infinite feed, short-form video, marketplace or voice/video. Uploaded photos are resized (avatar ≤384px, post/Moment ≤1200px, ~220 KB each) and kept in this browser's localStorage; storage quota is a real limit, so very large libraries may be refused.
 
 Current QA uses Chromium DOM/accessibility/geometry and screenshots. The executing model cannot view images, so screenshot visual approval, real-device keyboard/safe-area checks, screen-reader review, Safari/Firefox and full WCAG certification are not claimed. See `MVP_TEST_REPORT.md` for actual evidence and remaining limitations. Avatar provenance is in `app/src/data/ASSETS.md`; replace placeholders with consented/licensed media before public release.
 

@@ -31,7 +31,9 @@ async function audit(page: Page, screen: string, evidence: Evidence[]) {
       const containedBadge = element.matches('span.relative.shrink-0') && badgeBox && cardBox &&
         badgeBox.left >= cardBox.left && badgeBox.right <= cardBox.right;
       // Truncated text and native input text are intentionally internally clipped.
-      return !containedBadge && element.clientWidth > 0 && element.scrollWidth > element.clientWidth + 1 &&
+      const intentionalRail = style.overflowX === 'auto' &&
+        ['Suggested people', 'Recent Moments'].includes(element.getAttribute('aria-label') || '');
+      return !intentionalRail && !containedBadge && element.clientWidth > 0 && element.scrollWidth > element.clientWidth + 1 &&
         !['INPUT', 'TEXTAREA', 'SELECT', 'SVG'].includes(element.tagName) &&
         !element.classList.contains('sr-only') && style.textOverflow !== 'ellipsis';
     }).map(element => ({ tag: element.tagName, class: element.className,

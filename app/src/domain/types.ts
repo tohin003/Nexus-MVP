@@ -146,12 +146,24 @@ export type PostKind = "share" | "ask" | "collaborate" | "teach" | "challenge" |
 
 export type Reaction = "useful" | "interesting" | "lets-do-it" | "support";
 
+/** Browser-local photo update, visible for 24 hours. */
+export type Story = {
+  id: string;
+  userId: string;
+  photo: string;
+  caption: string;
+  createdAt: number;
+  expiresAt: number;
+  seenByMe: boolean;
+};
+
 export type Post = {
   id: string;
   userId: string;
   kind: PostKind;
   title: string;
   body: string;
+  photo?: string;
   circleId: string | null;
   createdAt: number;
   tags: string[];
