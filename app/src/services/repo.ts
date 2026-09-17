@@ -72,13 +72,17 @@ function profileFields(fields: ProfileFields): ProfileFields {
   }
   if (clean.avatar !== undefined && clean.avatar !== '' && clean.avatar !== me().avatar) validateMedia(clean.avatar);
   if (clean.name !== undefined) clean.name = required(clean.name, 'Name', 100);
-  if (clean.username !== undefined) {
-    clean.username = required(clean.username, 'Username', 40).replace(/^@/, '');
-    if (!/^[a-zA-Z0-9_.-]+$/.test(clean.username)) throw new Error('Use letters, numbers, dots, dashes, or underscores for your username.');
-    if (db.getState().users.some((user) => user.id !== db.getState().meId && user.username.toLowerCase() === clean.username!.toLowerCase())) throw new Error('That username is already in use.');
-  }
+  if (clean.username !== undefined) clean.username = validateUsername(clean.username);
   if (clean.roles && clean.roles.length > 3) throw new Error('Choose up to three roles.');
   return clean;
+}
+
+/** Shared non-mutating username validation: onboarding step checks and profile saves use one rule set. */
+export function validateUsername(input: string, selfId = db.getState().meId, state = db.getState()): string {
+  const username = required(input.trim().replace(/^@/, ''), 'Username', 40);
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) throw new Error('Use letters, numbers, dots, dashes, or underscores for your username.');
+  if (state.users.some((user) => user.id !== selfId && user.username.toLowerCase() === username.toLowerCase())) throw new Error('That username is already in use.');
+  return username;
 }
 
 export const auth = {
@@ -91,13 +95,20 @@ export const auth = {
   signOut() { db.setState({ signedIn: false }); },
   completeOnboarding(fields: ProfileFields) { return completeOnboarding(fields); },
 };
-export function completeOnboarding(fields: ProfileFields): User {
+export function completeOnboarding(fields: ProfileFields, firstIntent?: { text: string; interpretation: IntentInterpretation }): User {
   const clean = profileFields(fields);
-  mutate((state) => ({
-    signedIn: true, onboardingComplete: true,
-    users: state.users.map((user) => user.id === state.meId ? { ...user, ...clean } : user),
-    analyticsEvents: track(state, 'onboarding_completed'),
-  }));
+  const actor = requireActor();
+  // Prepare everything before one mutation: invalid profiles/intents publish nothing.
+  const intent = firstIntent ? prepareIntent(firstIntent.text, { interpretation: firstIntent.interpretation }, { ...actor, ...clean }) : undefined;
+  mutate((state) => {
+    const analyticsEvents = intent ? track(state, 'intent_created', { intentId: intent.id, type: intent.interpretation.intentType }) : state.analyticsEvents;
+    return {
+      signedIn: true, onboardingComplete: true,
+      users: state.users.map((user) => user.id === state.meId ? { ...user, ...clean } : user),
+      ...(intent ? { intents: [intent, ...state.intents] } : {}),
+      analyticsEvents: track({ ...state, analyticsEvents }, 'onboarding_completed'),
+    };
+  });
   return me();
 }
 export const profile = {
@@ -115,19 +126,22 @@ export type IntentOverrides = Partial<IntentInterpretation> & {
   visibility?: Intent['visibility'];
   expiresAt?: number | null;
 };
+function prepareIntent(originalText: string, overrides: IntentOverrides, actor = me()): Intent {
+  required(originalText, 'Intent', 3000);
+  const { title, details, visibility, expiresAt, interpretation: nested, ...interpretationFields } = overrides;
+  const interpretation = { ...interpretIntent(originalText, actor), ...interpretationFields, ...nested };
+  return {
+    id: uid('intent'), userId: actor.id, originalText,
+    interpretation, title: title?.trim() || interpretation.goal, details,
+    status: 'active', createdAt: now(), expiresAt: expiresAt ?? null,
+    visibility: visibility ?? 'public', interestedCount: 0, interestedByMe: false,
+  };
+}
 export const intents = {
   interpretPreview(text: string): IntentInterpretation { return interpretIntent(text, me()); },
   create(originalText: string, overrides: IntentOverrides = {}): Intent {
-    required(originalText, 'Intent', 3000);
-    const { title, details, visibility, expiresAt, interpretation: nested, ...interpretationFields } = overrides;
-    const interpretation = { ...interpretIntent(originalText, me()), ...interpretationFields, ...nested };
-    const intent: Intent = {
-      id: uid('intent'), userId: db.getState().meId, originalText,
-      interpretation, title: title?.trim() || interpretation.goal, details,
-      status: 'active', createdAt: now(), expiresAt: expiresAt ?? null,
-      visibility: visibility ?? 'public', interestedCount: 0, interestedByMe: false,
-    };
-    mutate((state) => ({ intents: [intent, ...state.intents], analyticsEvents: track(state, 'intent_created', { intentId: intent.id, type: interpretation.intentType }) }));
+    const intent = prepareIntent(originalText, overrides);
+    mutate((state) => ({ intents: [intent, ...state.intents], analyticsEvents: track(state, 'intent_created', { intentId: intent.id, type: intent.interpretation.intentType }) }));
     return intent;
   },
   expressInterest(id: string): Intent {

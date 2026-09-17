@@ -1,29 +1,118 @@
-import { ArrowUpRight, Bell, Check, ChevronRight, MessageSquare, Plus, Sparkles } from 'lucide-react';
-import { useActions, useBlockedIds, useCircleEvents, useCircles, useConnections, useConversations, useIntents, useMe, useMessages, useMutedIds, useNotifications, usePassedIds, usePosts, useUser, useUsers } from '../repo/store';
-import type { Conversation } from '../domain/types';
+import { Bell, Check, ChevronRight, MessageSquare, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { useBlockedIds, useCircles, useConnections, useIntents, useMe, useMutedIds, useNotifications, usePassedIds, usePosts, useUsers } from '../repo/store';
 import { matchPeople } from '../services/intelligence';
 import { navigate } from '../routerStore';
-import { useState } from 'react';
-import { Avatar } from '../components/Avatar';
 import { PersonCard } from '../components/PersonCard';
-import { IntentCard } from '../components/IntentCard';
 import { PostCard } from '../components/PostCard';
 import { EmptyState } from '../components/EmptyState';
 import { Moments } from '../components/Moments';
+
+const FEED_LIMIT = 8;
+
 export function Home() {
-  const me = useMe(); const users = useUsers(); const intents = useIntents(); const posts = usePosts(); const connections = useConnections(); const conversations = useConversations(); const circles = useCircles(); const events = useCircleEvents(); const blocked = useBlockedIds(); const muted = useMutedIds(); const passed = usePassedIds(); const notifications = useNotifications();
+  const me = useMe();
+  const users = useUsers();
+  const intents = useIntents();
+  const posts = usePosts();
+  const connections = useConnections();
+  const circles = useCircles();
+  const blocked = useBlockedIds();
+  const muted = useMutedIds();
+  const passed = usePassedIds();
+  const notifications = useNotifications();
+  const [filter, setFilter] = useState<'all' | 'following'>('all');
+
   if (!me) return <div className="p-5"><EmptyState title="Preparing your day…" loading /></div>;
-  const connectedIds = connections.filter(c => [c.aUserId, c.bUserId].includes(me.id)).flatMap(c => [c.aUserId, c.bUserId]);
-  const matches = matchPeople(me, users, intents, [...blocked, ...passed, ...connectedIds]).slice(0, 3);
-  const chats = conversations.filter(c => c.memberIds.includes(me.id) && !c.memberIds.some(id => blocked.includes(id) || users.find(u => u.id === id)?.suspended)).slice(0, 2);
-  const visiblePosts = posts.filter(p => !blocked.includes(p.userId) && !muted.includes(p.userId) && !users.find(u => u.id === p.userId)?.suspended && (!p.circleId || circles.some(c => c.id === p.circleId && (c.privacy === 'open' || c.memberIds.includes(me.id)))));
-  const opportunity = intents.find(i => i.userId !== me.id && !blocked.includes(i.userId) && !muted.includes(i.userId) && !users.find(u => u.id === i.userId)?.suspended && i.visibility === 'public' && i.status === 'active' && (i.expiresAt === null || i.expiresAt > Date.now()));
-  const opportunityPost = visiblePosts.find(p => p.userId !== me.id && ['collaborate', 'ask', 'teach', 'meet'].includes(p.kind));
-  const mine = circles.filter(c => c.memberIds.includes(me.id));
-  const updates = [...mine.map(c => ({ id: `circle-${c.id}`, circleId: c.id, title: c.name, detail: `Day ${c.dayNumber} · ${c.goal}`, at: c.createdAt })), ...events.filter(e => mine.some(c => c.id === e.circleId)).map(e => ({ id: e.id, circleId: e.circleId, title: e.title, detail: `${new Date(e.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${e.location}`, at: e.at }))].sort((a, b) => b.at - a.at).slice(0, 4);
-  const feed = visiblePosts.filter(p => (p.userId === me.id || connectedIds.includes(p.userId)) && p.id !== opportunityPost?.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
-  const unread = notifications.filter(n => !n.read).length;
-  return <div className="p-5 pb-8 space-y-7"><header className="flex justify-between items-center"><div className="flex items-center gap-2"><span className="font-black tracking-[.2em] text-lg">NEXUS</span><span className="text-xs rounded-full px-2 py-1" style={{ color: 'var(--accent-text)', background: 'var(--accent-soft)' }}>TODAY</span></div><div className="flex"><button className="btn btn-ghost px-3 relative" onClick={() => navigate('notifications')} aria-label={`Notifications, ${unread} unread`}><Bell size={21} />{unread > 0 && <span className="absolute right-1 top-0 text-[10px] px-1.5 rounded-full" style={{ background: 'var(--accent)', color: '#fff' }}>{unread}</span>}</button><button className="btn btn-ghost px-2" onClick={() => navigate('me')} aria-label="My passport"><Avatar user={me} size={33} /></button></div></header><section><p className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p><h1 className="text-[32px] leading-tight font-bold tracking-tight mt-2">Good things start<br />with your people<span style={{ color: 'var(--accent)' }}>.</span></h1><p className="text-sm mt-3" style={{ color: 'var(--text-2)' }}>Hey {me.name.split(' ')[0]}. A few meaningful possibilities, picked for your day.</p></section><button className="card p-4 flex items-center gap-3 w-full text-left min-h-11" onClick={() => navigate('create')} disabled={me.suspended}><span className="p-2 rounded-xl" style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}><Plus size={21} /></span><span className="flex-1"><strong className="text-sm block">What do you want to do?</strong><span className="text-xs" style={{ color: 'var(--text-3)' }}>An idea, a question, a little ambition.</span></span><ArrowUpRight size={18} /></button><div className="nexus-line" /><Moments /><div className="nexus-line" /><section className="space-y-4"><div className="flex justify-between items-center"><h2 className="text-lg font-bold">People worth meeting</h2><span className="eyebrow">01 / YOUR PEOPLE</span></div><p className="text-sm" style={{ color: 'var(--text-2)' }}>Three introductions. Real reasons to connect.</p><div role="region" aria-label="Suggested people" tabIndex={0} className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-3">{matches.map(m => <div key={m.user.id} className="w-[85%] min-w-0 shrink-0 snap-start sm:w-80"><PersonCard match={m} compact /></div>)}</div>{!matches.length && <EmptyState title="Your current introductions are covered" description="Explore intents to find a new reason to connect." actionLabel="Discover" onAction={() => navigate('discover')} />}<button className="btn btn-ghost w-full" onClick={() => navigate('discover')}>People you should know<ChevronRight size={17} /></button></section><section className="space-y-3"><h2 className="text-lg font-bold">Keep a conversation going</h2>{chats.map(c => <TodayConversation key={c.id} conversation={c} />)}{!chats.length && <EmptyState title="Your next conversation starts here" description="Connect around something you both care about." actionLabel="Open inbox" onAction={() => navigate('inbox')} />}</section><section className="space-y-3"><h2 className="text-lg font-bold flex items-center gap-2"><Sparkles size={19} style={{ color: 'var(--accent)' }} />One possibility for you</h2>{opportunity ? <IntentCard intent={opportunity} /> : opportunityPost ? <PostCard post={opportunityPost} /> : <EmptyState title="Make the first move" description="Share what you want to build, learn, or explore." actionLabel="Share an intent" onAction={() => navigate('create')} />}</section><section className="space-y-3"><div className="flex justify-between items-center"><h2 className="text-lg font-bold">Around your circles</h2><button className="btn btn-ghost px-2" onClick={() => navigate('circles')} aria-label="All circles"><ArrowUpRight size={19} /></button></div>{updates.map(u => <button key={u.id} className="card p-4 w-full text-left min-h-11 flex items-center gap-3" onClick={() => navigate('circle', u.circleId)}><span className="text-xl">◎</span><span className="flex-1"><strong className="text-sm block">{u.title}</strong><span className="text-xs" style={{ color: 'var(--text-2)' }}>{u.detail}</span></span><ChevronRight size={17} /></button>)}{!updates.length && <EmptyState title="Find your small group" description="A shared goal is a good place to belong." actionLabel="Explore circles" onAction={() => navigate('circles')} />}</section><div className="divider" /><section className="space-y-4"><h2 className="eyebrow">FROM YOUR PEOPLE</h2>{feed.map(p => <PostCard key={p.id} post={p} />)}{!feed.length && <p className="text-sm" style={{ color: 'var(--text-2)' }}>A quiet moment. Updates from your connections will appear here.</p>}</section><footer className="text-center py-8 space-y-3"><span className="inline-flex p-3 rounded-full" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Check size={23} /></span><h2 className="font-bold text-xl">You're caught up ✓</h2><p className="text-sm" style={{ color: 'var(--text-2)' }}>Go do something interesting.</p><div className="w-10 h-px mx-auto" style={{ background: 'var(--line-strong)' }} /></footer></div>;
+
+  const connectedIds = connections
+    .filter(c => c.aUserId === me.id || c.bUserId === me.id)
+    .map(c => c.aUserId === me.id ? c.bUserId : c.aUserId);
+  const matches = matchPeople(me, users, intents, [...blocked, ...muted, ...passed, ...connectedIds]).slice(0, 3);
+  // Apply safety and circle access before either feed selection or the own-post slot.
+  const visiblePosts = posts.filter(post => {
+    const author = users.find(user => user.id === post.userId);
+    const circle = circles.find(item => item.id === post.circleId);
+    return author && !author.suspended && !blocked.includes(author.id) && !muted.includes(author.id)
+      && (!post.circleId || (circle && (circle.privacy === 'open' || circle.memberIds.includes(me.id))));
+  }).sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+  // Following is this app's accepted connections, plus your own updates.
+  const candidates = visiblePosts.filter(post => filter === 'all' || post.userId === me.id || connectedIds.includes(post.userId));
+  const feed = candidates.slice(0, FEED_LIMIT);
+  const latestOwn = candidates.find(post => post.userId === me.id);
+  // A busy demo feed must never hide the user's latest eligible contribution.
+  if (latestOwn && !feed.some(post => post.id === latestOwn.id)) {
+    feed[FEED_LIMIT - 1] = latestOwn;
+  }
+  const unread = notifications.filter(notification => !notification.read).length;
+  const inboxUnread = notifications.filter(notification => !notification.read && notification.kind === 'new-message').length;
+  const iconControl = 'relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-[var(--surface-2)]';
+
+  const suggestions = <section aria-labelledby="home-suggestions-heading" className="min-w-0 space-y-3 py-2">
+    <div className="flex items-center justify-between gap-3">
+      <h2 id="home-suggestions-heading" className="text-base font-bold">People worth meeting</h2>
+      <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 text-xs font-semibold text-[var(--accent-text)]" onClick={() => navigate('discover')}>
+        Explore <ChevronRight size={16} aria-hidden="true" />
+      </button>
+    </div>
+    <div role="region" aria-label="Suggested people" tabIndex={0} className="flex min-w-0 gap-4 overflow-x-auto snap-x snap-mandatory pb-3">
+      {matches.map(match => <div key={match.user.id} className="w-[85%] min-w-0 shrink-0 snap-start sm:w-80"><PersonCard match={match} compact /></div>)}
+    </div>
+    {!matches.length && <p className="text-sm text-[var(--text-2)]">Your current introductions are covered. Discover more people when you're ready.</p>}
+  </section>;
+
+  return <div className="min-w-0 space-y-5 p-5 pb-8">
+    <header className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-black tracking-[.2em] text-[var(--text-3)]">NEXUS</span>
+        <div className="flex shrink-0 gap-1">
+          <button type="button" className={iconControl} onClick={() => navigate('inbox')} aria-label={`Open inbox, ${inboxUnread} unread`}>
+            <MessageSquare size={21} aria-hidden="true" />
+            {inboxUnread > 0 && <span aria-hidden="true" className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--accent)]" />}
+          </button>
+          <button type="button" className={iconControl} onClick={() => navigate('notifications')} aria-label={`Notifications, ${unread} unread`}>
+            <Bell size={21} aria-hidden="true" />
+            {unread > 0 && <span aria-hidden="true" className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--accent)]" />}
+          </button>
+        </div>
+      </div>
+      <h1 className="text-2xl font-bold leading-tight tracking-tight">Good things start with your people<span className="text-[var(--accent)]">.</span></h1>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm text-[var(--text-2)]">Small updates. Real connections.</p>
+        <button type="button" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--on-accent)] disabled:opacity-50" onClick={() => navigate('create')} disabled={me.suspended}>
+          <Plus size={18} aria-hidden="true" />Create
+        </button>
+      </div>
+    </header>
+
+    <Moments />
+
+    <section aria-label="Home feed" className="min-w-0 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line)] pt-4">
+        <h2 className="text-lg font-bold">Your feed</h2>
+        <div role="group" aria-label="Feed filter" className="inline-flex rounded-full bg-[var(--surface-2)] p-1">
+          {(['all', 'following'] as const).map(value => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`min-h-11 rounded-full px-4 text-sm font-semibold ${filter === value ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm' : 'text-[var(--text-2)]'}`}>
+            {value === 'all' ? 'All' : 'Following'}
+          </button>)}
+        </div>
+      </div>
+      {filter === 'following' && <p className="text-xs text-[var(--text-3)]">Updates from your connections, and you.</p>}
+      {feed.slice(0, 2).map(post => <PostCard key={post.id} post={post} />)}
+      {!feed.length && <EmptyState
+        title={filter === 'following' ? 'A quiet moment with your people' : 'A little space for something new'}
+        description={filter === 'following' ? 'Updates from your connections and your own posts will appear here.' : 'Share an idea, a question, or a small step forward.'}
+        actionLabel={filter === 'following' ? 'See all posts' : 'Create a post'}
+        onAction={() => filter === 'following' ? setFilter('all') : navigate('create')}
+      />}
+      {filter === 'all' && suggestions}
+      {feed.slice(2).map(post => <PostCard key={post.id} post={post} />)}
+    </section>
+
+    {feed.length > 0 && <footer className="flex items-center justify-center gap-3 border-t border-[var(--line)] py-5">
+      <Check size={19} className="shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
+      <div><h2 className="text-sm font-semibold">You're caught up</h2><p className="text-xs text-[var(--text-2)]">A few updates, then back to what matters.</p></div>
+    </footer>}
+  </div>;
 }
-function TodayConversation({ conversation }: { conversation: Conversation }) { const me = useMe(); const other = useUser(conversation.memberIds.find(id => id !== me.id)); const messages = useMessages(conversation.id); const actions = useActions(); const [error, setError] = useState(''); if (!other) return null; const unread = messages.filter(m => m.senderId !== me.id && !m.readAt).length; return <div><button className="card w-full p-4 flex gap-3 items-center text-left min-h-11" disabled={me.suspended || other.suspended} onClick={() => { try { actions.messages.markRead(conversation.id); navigate('chat', conversation.id); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to open conversation.'); } }}><Avatar user={other} size={42} /><span className="min-w-0 flex-1"><strong className="text-sm block">{other.name}</strong><span className="text-xs block truncate" style={{ color: 'var(--text-2)' }}>{messages.at(-1)?.text || 'Your introduction is ready.'}</span></span>{unread ? <span className="fit-badge fit-strong">{unread}</span> : <MessageSquare size={17} />}</button>{error && <p role="alert" className="text-sm">{error}</p>}</div>; }
+
 export default Home;

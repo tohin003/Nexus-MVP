@@ -9,6 +9,6 @@ import type { RouteName } from '../routerStore';
 export function entryRoute(signedIn: boolean, onboardingComplete: boolean, current: RouteName): RouteName {
   if (!signedIn) return 'welcome';
   if (!onboardingComplete) return 'onboarding';
-  if (current === 'welcome' || current === 'onboarding') return current === 'onboarding' ? 'onboarding' : 'home';
+  if (current === 'welcome' || current === 'onboarding') return 'home';
   return current;
 }

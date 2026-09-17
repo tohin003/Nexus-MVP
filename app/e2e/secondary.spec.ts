@@ -7,7 +7,7 @@ const STORAGE_KEY = 'nexus-mvp-state-v1';
 // materializes its real seed; only session flags/admin fixture are changed.
 async function seedSession(page: Page, admin = false) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Continue with Demo/i }).click();
+  await page.getByRole('button', { name: 'Continue with Demo', exact: true }).click();
   await page.evaluate(({ key, admin }) => {
     const state = JSON.parse(localStorage.getItem(key)!);
     state.signedIn = true;
@@ -35,6 +35,37 @@ async function reportAarav(page: Page, detail: string) {
   await expect(page.getByRole('heading', { name: 'Report received' })).toBeVisible();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 }
+
+test('fresh sign-in explains local setup; username collision, draft reload and back exit are safe', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('No saved demo profile was found on this device.');
+  await expect(page.getByRole('heading', { name: /Find your people/i })).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), STORAGE_KEY)).toBeNull();
+  await page.getByRole('button', { name: 'Continue with Demo', exact: true }).click();
+  await expect(page).toHaveURL(/#onboarding$/);
+  const before = await state(page);
+  await page.getByRole('checkbox', { name: /18 or older/i }).check();
+  await page.getByLabel('Pick a username', { exact: true }).fill('AARAV.NEXUS');
+  await page.getByRole('button', { name: 'Just explore', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('That username is already in use.');
+  await expect(page.getByRole('heading', { name: 'First, a little about you.' })).toBeVisible();
+  expect((await state(page)).intents).toEqual(before.intents);
+  expect((await state(page)).onboardingComplete).toBe(false);
+  await page.getByLabel('Pick a username', { exact: true }).fill('draft.tester');
+  await page.reload();
+  await expect(page.getByLabel('Pick a username', { exact: true })).toHaveValue('draft.tester');
+  await expect(page.getByRole('checkbox', { name: /18 or older/i })).toBeChecked();
+  await page.getByRole('button', { name: 'Back to welcome', exact: true }).click();
+  await expect(page).toHaveURL(/#welcome$/);
+  await expect(page.getByRole('heading', { name: /Find your people/i })).toBeVisible();
+  expect((await state(page)).signedIn).toBe(false);
+  await page.getByRole('button', { name: 'Resume demo setup', exact: true }).click();
+  await expect(page.getByLabel('Pick a username', { exact: true })).toHaveValue('draft.tester');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'What lights you up?' })).toBeVisible();
+});
 
 test('privacy and light/dark/system appearance persist across reload', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
@@ -203,7 +234,13 @@ test('signout keeps profile data but gates protected screens after reload', asyn
   await page.goto('/#edit-profile');
   await expect(page.getByRole('button', { name: 'Save profile' })).toHaveCount(0);
   await page.goto('/#welcome');
-  await page.getByRole('button', { name: /Continue with Demo/i }).click();
+  await expect(page.getByRole('button', { name: 'Resume demo as Prince', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/#home$/);
+  await expect(page.getByRole('heading', { name: /Good things start/ })).toBeVisible();
+  await page.goto('/#onboarding');
+  await expect(page).toHaveURL(/#home$/);
+  await expect(page.getByRole('heading', { name: /Good things start/ })).toBeVisible();
   await page.goto('/#settings');
   await expect(page.getByRole('checkbox', { name: /Show my city/ })).not.toBeChecked();
 });

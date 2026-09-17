@@ -8,6 +8,7 @@ test('welcome, adult onboarding, interpretation and persistent first matches', a
   await page.getByRole('button', { name: /Continue with Demo/i }).click();
   await page.getByRole('checkbox', { name: /18 or older/i }).check();
   await page.getByLabel('What should we call you?').fill('Prince');
+  await page.getByLabel('Pick a username', { exact: true }).fill('@prince.test');
   await page.getByLabel('Your city', { exact: true }).fill('Jaipur');
   await page.getByRole('button', { name: 'Create together', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -32,6 +33,8 @@ test('welcome, adult onboarding, interpretation and persistent first matches', a
   await expect(page.getByText('Aarav', { exact: false }).first()).toBeVisible();
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('nexus-mvp-state-v1') || '{}'));
   expect(saved.onboardingComplete).toBe(true);
+  expect(saved.users.find((user: { id: string }) => user.id === saved.meId).username).toBe('prince.test');
+  expect(await page.evaluate(() => sessionStorage.getItem('nexus-onboarding-draft-v1'))).toBeNull();
   expect(saved.intents.some((item: { originalText: string }) => item.originalText.includes('filmmaking YouTube'))).toBe(true);
   const aarav = page.locator('article').filter({ hasText: 'Aarav Mehta' }).first();
   await aarav.getByRole('button', { name: 'View profile' }).click();

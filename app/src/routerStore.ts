@@ -10,7 +10,13 @@ function readHash(): Route {
 let state = { route: readHash() };
 const listeners = new Set<() => void>();
 window.addEventListener('hashchange', () => { state = { route: readHash() }; listeners.forEach(fn => fn()); });
-export function navigate(name: RouteName, param?: string) { window.location.hash = `${name}${param ? '/' + encodeURIComponent(param) : ''}`; }
+export function navigate(name: RouteName, param?: string) {
+  window.location.hash = `${name}${param ? '/' + encodeURIComponent(param) : ''}`;
+  // Publish synchronously: a state mutation may otherwise let route guards react
+  // to the previous hash before the browser dispatches hashchange.
+  state = { route: readHash() };
+  listeners.forEach(fn => fn());
+}
 export function back() { if (window.history.length > 1) window.history.back(); else navigate('home'); }
 export function useRoute() {
   return useSyncExternalStore(cb => { listeners.add(cb); return () => { listeners.delete(cb); }; }, () => state);
