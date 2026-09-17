@@ -15,6 +15,7 @@ export function Inbox() {
   const state = useNexus();
   const { route } = useRoute();
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [tab, setTab] = useState<'messages' | 'requests'>(route.param === 'requests' ? 'requests' : 'messages');
   const me = state.users.find(user => user.id === state.meId);
   const locked = !state.signedIn || !me || !!me.suspended;
@@ -28,6 +29,7 @@ export function Inbox() {
   }).sort((a, b) => (b.latest?.createdAt ?? b.conversation.createdAt) - (a.latest?.createdAt ?? a.conversation.createdAt));
   const run = (action: () => void) => {
     setError('');
+    setNotice('');
     try { action(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'Something went wrong. Please try again.'); }
   };
 
@@ -39,6 +41,7 @@ export function Inbox() {
     </header>
     <p className="text-sm leading-relaxed text-[var(--text-2)]">Less small talk. More reasons to connect.</p>
     {locked && <p role="status" className="rounded-2xl bg-[var(--danger-soft)] p-4 text-sm text-[var(--danger)]">{me?.suspended ? 'Your account is suspended. Messaging and requests are unavailable.' : 'Sign in to manage conversations and requests.'}</p>}
+    {notice && <p role="status" className="text-sm text-[var(--text-2)]">{notice}</p>}
     {error && <p role="alert" className="rounded-2xl bg-[var(--danger-soft)] p-4 text-sm text-[var(--danger)]">{error}</p>}
     <div role="tablist" aria-label="Inbox sections" className="flex gap-2 rounded-2xl bg-[var(--surface-2)] p-1">
       {(['messages', 'requests'] as const).map(name => <button key={name} id={`inbox-${name}`} role="tab" aria-selected={tab === name} aria-controls={`inbox-panel-${name}`} onClick={() => setTab(name)} className={`min-h-11 flex-1 rounded-xl px-3 text-sm font-semibold ${tab === name ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm' : 'text-[var(--text-2)]'}`}>
@@ -73,7 +76,7 @@ export function Inbox() {
               <div className="flex items-center gap-3">{user && <Avatar user={user} size={44} />}<div className="min-w-0 flex-1"><h3 className="font-semibold">{user?.name ?? 'Unavailable person'}</h3><p className="truncate text-xs text-[var(--text-2)]">{user?.headline}</p></div><time className="shrink-0 text-xs text-[var(--text-2)]" dateTime={new Date(request.createdAt).toISOString()}>{timestamp(request.createdAt)}</time></div>
               <p className="text-sm leading-relaxed text-[var(--text-2)]">“{request.why}”</p>
               {unavailable && <p className="text-xs text-[var(--danger)]">This request is unavailable while an account is blocked, suspended, or signed out.</p>}
-              {group.isOutgoing ? <div className="space-y-2 rounded-xl bg-[var(--accent-soft)] p-3"><p className="text-xs leading-relaxed text-[var(--accent-text)]"><strong>Demo preview.</strong> Waiting for a reply. In this local demo, you can simulate their acceptance to explore the introduction and chat. No real person is accepting.</p><button disabled={!!unavailable} className="btn btn-secondary w-full !text-sm" onClick={() => run(() => { const conversation = actions.connections.demoAcceptOutgoing(request.id); navigate('chat', conversation.id); })}>Accept as {user?.name.split(' ')[0] ?? 'recipient'} (demo)</button></div> : <div className="flex gap-2"><button disabled={!!unavailable} className="btn btn-primary flex-1" onClick={() => run(() => { const conversation = actions.connections.accept(request.id); navigate('chat', conversation.id); })}>Accept & chat</button><button disabled={!!unavailable} className="btn btn-secondary" onClick={() => run(() => actions.connections.pass(request.id))}>Pass</button></div>}
+              {group.isOutgoing ? <div className="space-y-2 rounded-xl bg-[var(--accent-soft)] p-3"><p className="text-xs leading-relaxed text-[var(--accent-text)]"><strong>Sent · Pending.</strong> Waiting for a reply. In this local demo, you can simulate their acceptance to explore the introduction and chat. No real person is accepting.</p><button disabled={!!unavailable} className="btn btn-secondary w-full !text-sm" onClick={() => run(() => { const conversation = actions.connections.demoAcceptOutgoing(request.id); navigate('chat', conversation.id); })}>Accept as {user?.name.split(' ')[0] ?? 'recipient'} (demo)</button>{!state.connections.some(item => (item.aUserId === request.fromUserId && item.bUserId === request.toUserId) || (item.bUserId === request.fromUserId && item.aUserId === request.toUserId)) && <button disabled={locked} className="btn btn-secondary w-full !text-sm" onClick={() => run(() => { actions.connections.cancel(request.id); setNotice('Connection request cancelled.'); })}>Cancel request</button>}</div> : <div className="flex gap-2"><button disabled={!!unavailable} className="btn btn-primary flex-1" onClick={() => run(() => { const conversation = actions.connections.accept(request.id); navigate('chat', conversation.id); })}>Accept & chat</button><button disabled={!!unavailable} className="btn btn-secondary" onClick={() => run(() => actions.connections.pass(request.id))}>Pass</button></div>}
             </article>;
           })}
           {group.isOutgoing && group.requests.length === 0 && <p className="text-sm text-[var(--text-2)]">No requests waiting for a reply. Find your next collaborator in Discover.</p>}

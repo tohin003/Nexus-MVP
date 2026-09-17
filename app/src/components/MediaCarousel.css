@@ -1,0 +1,11 @@
+/* Scoped to horizontal media/suggestion controls; vertical scrolling stays native. */
+.nexus-horizontal { scrollbar-width: none; }
+.nexus-horizontal::-webkit-scrollbar { display: none; }
+.nexus-pager { min-width: 0; }
+.nexus-pager-track { display: flex; min-width: 0; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; }
+.nexus-pager-slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.nexus-pager-controls { display: flex; align-items: center; justify-content: center; gap: .25rem; flex-wrap: wrap; }
+.nexus-pager-dot { width: 24px; height: 32px; display: grid; place-items: center; border-radius: 8px; }
+.nexus-pager-dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.nexus-pager-dot[aria-current="true"]::after { width: 8px; height: 8px; background: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .nexus-pager-track { scroll-behavior: auto; } }

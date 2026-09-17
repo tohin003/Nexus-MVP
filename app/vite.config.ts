@@ -9,5 +9,13 @@ export default defineConfig({
   server: {
     host: '127.0.0.1', port: 4173, strictPort: true,
     watch: { ignored: ['**/test-results*/**', '**/playwright-report/**', '**/e2e/**'] },
+    // E2E real-account specs exercise the live auth API through same-origin cookies.
+    proxy: {
+      '/api': {
+        target: 'https://nexus-mvp-46rx.vercel.app',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
   },
 })

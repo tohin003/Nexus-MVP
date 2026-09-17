@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ChevronRight, ShieldCheck, Sun, Moon, Monitor, UserRound, Ban, VolumeX, RotateCcw, LogOut, LockKeyhole, ChartNoAxesColumn, Flag } from 'lucide-react';
 import type { Privacy, Report } from '../domain/types';
-import { useMe, useNexus, resetDemo } from '../repo/store';
+import { useMe, useNexus, resetDemo, db } from '../repo/store';
 import { auth, privacy, blocks, mutes, moderation } from '../services/repo';
+import { api } from '../services/api';
 import { navigate } from '../routerStore';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -69,7 +70,7 @@ export function Settings() {
     <section className="rounded-2xl bg-[var(--accent-soft)] p-5 text-sm leading-relaxed"><h2 className="mb-2 font-semibold text-[var(--accent-text)]">18+ · A local-only demo</h2><p className="text-[var(--text-2)]">NEXUS is for adults 18 and older. Profiles, conversations, reports, and settings in this demo stay in this browser. Other people are demo personas; there is no live network, verified identity, or real moderation team. Please don’t enter sensitive information.</p></section>
     <section className="card space-y-3 p-5"><h2 className="font-semibold">Demo & account</h2>
       {!confirmReset ? <button className="btn btn-danger w-full" onClick={() => { setConfirmReset(true); setSuccess(''); }}><RotateCcw size={18} />Reset demo</button> : <div className="space-y-3 rounded-xl border border-[var(--danger)] p-4" role="group" aria-label="Confirm demo reset"><h3 className="font-semibold">Start fresh?</h3><p className="text-sm text-[var(--text-2)]">This permanently removes your local edits, messages, connections, and reports and restores the demo. This cannot be undone. Your appearance preference is kept.</p><div className="flex flex-wrap gap-2"><button className="btn btn-danger" disabled={resetting} onClick={reset}>{resetting ? 'Resetting…' : 'Yes, reset demo'}</button><button className="btn btn-secondary" disabled={resetting} onClick={() => setConfirmReset(false)}>Cancel</button></div></div>}
-      {signedIn && <button className="btn btn-secondary w-full" disabled={resetting} onClick={() => { auth.signOut(); navigate('welcome'); }}><LogOut size={18} />Sign out</button>}
+      {signedIn && <button className="btn btn-secondary w-full" disabled={resetting} onClick={async () => { const wasAccount = db.getState().authMode === 'account'; auth.signOut(); if (wasAccount) await api.signout(); navigate('welcome'); }}><LogOut size={18} />Sign out</button>}
       <p className="text-xs leading-relaxed text-[var(--text-2)]">Signing out keeps your demo data on this device. Reset the demo to remove your changes.</p>
     </section>
   </main>;

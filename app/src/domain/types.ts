@@ -112,6 +112,14 @@ export type ConnectionRequest = {
   respondedAt?: number;
 };
 
+/** Directional local follow; independent of mutual connections and chat access. */
+export type Follow = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  createdAt: number;
+};
+
 export type Connection = {
   id: string;
   aUserId: string;
@@ -163,7 +171,8 @@ export type Post = {
   kind: PostKind;
   title: string;
   body: string;
-  photo?: string;
+  photo?: string; // legacy cover photo, retained for old readers
+  photos?: string[]; // ordered carousel; falls back to photo when absent
   circleId: string | null;
   createdAt: number;
   tags: string[];

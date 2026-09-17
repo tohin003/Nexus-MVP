@@ -59,6 +59,7 @@ export const actions = {
   profile: repo.profile,
   intents: repo.intents,
   connections: repo.connections,
+  follows: repo.follows,
   messages: repo.messages,
   blocks: repo.blocks,
   mutes: repo.mutes,

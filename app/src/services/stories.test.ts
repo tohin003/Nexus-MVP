@@ -18,6 +18,7 @@ vi.stubGlobal('window', { localStorage: memoryStore });
 
 import { exportState, importState, resetDemo } from '../repo/db';
 import { auth, posts, profile, stories } from './repo';
+import { groupStories } from './storyGroups';
 
 const signIn = () => auth.demoSignIn();
 const MEDIA = `data:image/jpeg;base64,${'A'.repeat(200_000)}`;
@@ -69,6 +70,41 @@ describe('stories', () => {
     const mine = stories.create(MEDIA, 'Mine');
     stories.delete(mine.id);
     expect(stories.list().some((item) => item.id === mine.id)).toBe(false);
+  });
+
+  it('groups three frames into one user ring while keeping other users separate', () => {
+    signIn();
+    const batch = stories.createBatch([MEDIA, MEDIA, MEDIA]);
+    const visible = stories.list();
+    const groups = groupStories(visible);
+    expect(groups).toHaveLength(new Set(visible.map((frame) => frame.userId)).size);
+    expect(groups.length).toBeGreaterThan(1);
+    expect(groups.filter((group) => group.userId === batch[0].userId)).toHaveLength(1);
+    expect(groups.find((group) => group.userId === batch[0].userId)?.frames.map((frame) => frame.id)).toEqual(batch.map((frame) => frame.id));
+    // Grouping is only a view: no frame storage or ordering changes.
+    expect(stories.list()).toEqual(visible);
+  });
+
+  it('keeps a group unseen until every frame is seen, including after persistence', () => {
+    signIn();
+    const batch = stories.createBatch([MEDIA, MEDIA, MEDIA]);
+    const group = () => groupStories(stories.list()).find((item) => item.userId === batch[0].userId)!;
+    expect(group().hasUnseen).toBe(true);
+    stories.markSeen(batch[0].id);
+    expect(group().frames.map((frame) => frame.seenByMe)).toEqual([true, false, false]);
+    expect(group().hasUnseen).toBe(true);
+    stories.markSeen(batch[1].id);
+    expect(group().hasUnseen).toBe(true);
+    stories.markSeen(batch[2].id);
+    expect(group().hasUnseen).toBe(false);
+    importState(exportState());
+    expect(group().hasUnseen).toBe(false);
+    const fresh = stories.create(MEDIA);
+    expect(group().hasUnseen).toBe(true);
+    stories.delete(fresh.id);
+    expect(group().hasUnseen).toBe(false);
+    stories.delete(batch[1].id);
+    expect(group().frames.map((frame) => frame.id)).toEqual([batch[0].id, batch[2].id]);
   });
 
   it('filters blocked, muted, suspended and non-discoverable authors', () => {

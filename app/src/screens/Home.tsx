@@ -7,6 +7,7 @@ import { PersonCard } from '../components/PersonCard';
 import { PostCard } from '../components/PostCard';
 import { EmptyState } from '../components/EmptyState';
 import { Moments } from '../components/Moments';
+import { SnapPager } from '../components/MediaCarousel';
 
 const FEED_LIMIT = 8;
 
@@ -55,9 +56,9 @@ export function Home() {
         Explore <ChevronRight size={16} aria-hidden="true" />
       </button>
     </div>
-    <div role="region" aria-label="Suggested people" tabIndex={0} className="flex min-w-0 gap-4 overflow-x-auto snap-x snap-mandatory pb-3">
-      {matches.map(match => <div key={match.user.id} className="w-[85%] min-w-0 shrink-0 snap-start sm:w-80"><PersonCard match={match} compact /></div>)}
-    </div>
+    <SnapPager label="Suggested people">
+      {matches.map(match => <div key={match.user.id} className="min-w-0 p-1"><PersonCard match={match} compact /></div>)}
+    </SnapPager>
     {!matches.length && <p className="text-sm text-[var(--text-2)]">Your current introductions are covered. Discover more people when you're ready.</p>}
   </section>;
 

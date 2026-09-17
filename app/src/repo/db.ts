@@ -1,9 +1,9 @@
 import { createStore } from 'zustand/vanilla';
 import type {
   BlockedUser, Circle, CircleEvent, CircleProject, Connection, ConnectionRequest,
-  Conversation, Intent, Message, MutedUser, Notification, Post, Report, Story, User,
+  Conversation, Follow, Intent, Message, MutedUser, Notification, Post, Report, Story, User,
 } from '../domain/types';
-import { isUploadedImage, validateMedia } from '../services/image';
+import { isUploadedImage, postPhotos, validateMedia, validateMediaBatch } from '../services/image';
 
 export const STATE_VERSION = 1 as const;
 export const STORAGE_KEY = 'nexus-mvp-state-v1';
@@ -17,11 +17,13 @@ export type AppState = {
   version: typeof STATE_VERSION;
   meId: string;
   signedIn: boolean;
+  authMode?: 'demo' | 'account' | 'signup';
   onboardingComplete: boolean;
   users: User[];
   intents: Intent[];
   requests: ConnectionRequest[];
   connections: Connection[];
+  follows: Follow[];
   conversations: Conversation[];
   messages: Message[];
   posts: Post[];
@@ -74,7 +76,10 @@ function validate(value: unknown): asserts value is AppState {
   }
   // Version 1 predates Moments: migrate only an absent table, never malformed data.
   if (!Object.hasOwn(value, 'stories')) value.stories = [];
+  // Older local snapshots have no follow graph; never infer follows from connections.
+  if (!Object.hasOwn(value, 'follows')) value.follows = [];
   const tableFields: Record<string, string[]> = {
+    follows: ['id', 'fromUserId', 'toUserId'],
     stories: ['id', 'userId', 'photo', 'caption'],
     users: ['id', 'name', 'username'], intents: ['id', 'userId', 'originalText', 'title'],
     requests: ['id', 'fromUserId', 'toUserId', 'why', 'status'],
@@ -97,6 +102,18 @@ function validate(value: unknown): asserts value is AppState {
     && typeof user.privacy.showCity === 'boolean' && typeof user.privacy.showInLocalSuggestions === 'boolean'
     && ['anyone', 'connections-only'].includes(String(user.privacy.whoCanMessage))
     && isRecord(user.reputation));
+  const follows = value.follows as Record<string, unknown>[];
+  const followPairs = new Set<string>();
+  for (const follow of follows) {
+    const key = JSON.stringify([follow.fromUserId, follow.toUserId]);
+    if (follow.fromUserId === follow.toUserId || followPairs.has(key)
+      || !users.some((user) => user.id === follow.fromUserId)
+      || !users.some((user) => user.id === follow.toUserId)
+      || typeof follow.createdAt !== 'number' || !Number.isFinite(follow.createdAt)) {
+      throw new Error('The NEXUS backup contains a malformed follow.');
+    }
+    followPairs.add(key);
+  }
   const validIntents = (value.intents as Record<string, unknown>[]).every((intent) =>
     isRecord(intent.interpretation) && typeof intent.interestedCount === 'number'
     && ['skillsNeeded', 'skillsOffered', 'keywords'].every((key) => strings((intent.interpretation as Record<string, unknown>)[key])));
@@ -125,6 +142,11 @@ function validate(value: unknown): asserts value is AppState {
     if (post.photo !== undefined) {
       if (typeof post.photo !== 'string') throw new Error('Invalid post photo.');
       validateMedia(post.photo);
+    }
+    if (post.photos !== undefined) {
+      if (!strings(post.photos)) throw new Error('Invalid post photos.');
+      validateMediaBatch(post.photos, undefined, true);
+      if (post.photo !== undefined && post.photo !== post.photos[0]) throw new Error('Post cover must match the first photo.');
     }
   }
   for (const story of value.stories as Record<string, unknown>[]) {
@@ -194,7 +216,7 @@ export function importState(input: string | unknown): AppState {
   const state: unknown = JSON.parse(typeof input === 'string' ? input : JSON.stringify(input));
   validate(state);
   if (state.users.some((user) => isUploadedImage(user.avatar))
-    || state.posts.some((post) => post.photo !== undefined)
+    || state.posts.some((post) => postPhotos(post).length > 0)
     || state.stories.some((story) => isUploadedImage(story.photo))) preflightMedia(state);
   generation += 1;
   db.setState(state, true);

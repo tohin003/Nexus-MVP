@@ -1,0 +1,94 @@
+import { expect, test, type Page } from '@playwright/test';
+async function openHome(page: Page) {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Continue with Demo/i }).click();
+  await page.evaluate(() => {
+    const key = 'nexus-mvp-state-v1'; const state = JSON.parse(localStorage.getItem(key)!);
+    state.onboardingComplete = true; localStorage.setItem(key, JSON.stringify(state));
+  });
+  await page.goto('/#home'); await page.reload();
+}
+const photos = ['public/avatars/aarav.jpg', 'public/avatars/kabir.jpg', 'public/avatars/ananya.jpg'];
+
+test('native multiple picker, ordered edits, carousel controls and reload', async ({ page }) => {
+  await openHome(page); await page.goto('/#create');
+  await page.getByRole('textbox', { name: 'What would you like to share?' }).fill('Ordered photo story');
+  await page.getByRole('textbox', { name: 'Tell the story. What did you learn or make?' }).fill('Three small steps.');
+  const picker = page.locator('input[type=file]');
+  await expect(picker).toHaveAttribute('multiple', ''); await picker.setInputFiles(photos.slice(0, 2));
+  await expect(page.getByAltText('Selected photo 2')).toBeVisible();
+  const first = await page.getByAltText('Selected photo 1').getAttribute('src');
+  const second = await page.getByAltText('Selected photo 2').getAttribute('src');
+  await page.getByRole('button', { name: 'Move photo 2 earlier', exact: true }).click();
+  await expect(page.getByAltText('Selected photo 1')).toHaveAttribute('src', second!);
+  await picker.setInputFiles(photos[2]); await expect(page.getByAltText('Selected photo 3')).toBeVisible();
+  await page.getByRole('button', { name: 'Remove photo 2', exact: true }).click();
+  await expect(page.getByAltText('Selected photo 3')).toHaveCount(0);
+  await picker.setInputFiles({ name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('bad') });
+  await expect(page.getByRole('alert')).toContainText('unchanged');
+  await expect(page.getByAltText('Selected photo 1')).toHaveAttribute('src', second!);
+  await page.getByRole('button', { name: 'Publish post', exact: true }).click();
+  await page.getByRole('button', { name: 'Go to feed', exact: true }).click();
+  const carousel = page.getByRole('region', { name: 'post photo', exact: true });
+  await expect(carousel.getByRole('status')).toHaveText('1 / 2');
+  await expect(page.getByAltText('Photo 1 for Ordered photo story')).toHaveAttribute('src', second!);
+  expect(second).not.toBe(first);
+  await carousel.getByRole('button', { name: 'Next post photo', exact: true }).click();
+  await expect(carousel.getByRole('status')).toHaveText('2 / 2');
+  await carousel.locator('.nexus-pager-track').focus(); await page.keyboard.press('Home');
+  await expect(carousel.getByRole('status')).toHaveText('1 / 2');
+  await carousel.getByRole('button', { name: 'Go to post photo 2', exact: true }).click();
+  await expect(carousel.getByRole('status')).toHaveText('2 / 2');
+  await page.reload(); await expect(carousel.getByRole('status')).toHaveText('1 / 2');
+  const suggestions = page.getByRole('region', { name: 'Suggested people', exact: true });
+  await suggestions.getByRole('button', { name: 'Next Suggested people', exact: true }).click();
+  await expect(suggestions.getByRole('status')).toHaveText('2 / 3');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('story batch has one user ring, ordered viewer, per-frame seen progress and deletion', async ({ page }) => {
+  await openHome(page);
+  const rings = page.getByRole('button', { name: /^View .* Moment, (unseen|seen)$/ });
+  const otherRings = await rings.count();
+  expect(otherRings).toBeGreaterThan(1);
+  await page.getByRole('button', { name: 'Add a Moment', exact: true }).click();
+  await page.locator('input[type=file]').setInputFiles(photos);
+  await expect(page.getByAltText('Selected photo 3')).toBeVisible();
+  const selected = await page.getByAltText(/Selected photo/).evaluateAll(images => images.map(image => image.getAttribute('src')));
+  await page.getByRole('textbox', { name: /Caption/ }).fill('Shared batch caption');
+  await page.getByRole('button', { name: 'Share 3 Moments', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Moments', exact: true }).getByRole('status')).toContainText('3 Moments saved in order');
+  await expect(rings).toHaveCount(otherRings + 1);
+  await expect(page.getByRole('button', { name: /View your Moment/ })).toHaveCount(1);
+  const ownFrames = () => page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('nexus-mvp-state-v1')!);
+    return state.stories.filter((frame: { userId: string }) => frame.userId === state.meId) as { id: string; seenByMe: boolean }[];
+  });
+  await page.getByRole('button', { name: 'View your Moment, unseen', exact: true }).click();
+  const carousel = page.getByRole('region', { name: 'Moment', exact: true });
+  await expect(carousel.getByRole('status')).toHaveText('1 / 3');
+  for (let i = 0; i < 3; i++) await expect(carousel.locator('img').nth(i)).toHaveAttribute('src', selected[i]!);
+  expect((await ownFrames()).map(frame => frame.seenByMe)).toEqual([true, false, false]);
+  await carousel.locator('.nexus-pager-track').focus(); await page.keyboard.press('ArrowRight');
+  await expect(carousel.getByRole('status')).toHaveText('2 / 3');
+  expect((await ownFrames()).map(frame => frame.seenByMe)).toEqual([true, true, false]);
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'View your Moment, unseen', exact: true })).toHaveCount(1);
+  await page.reload();
+  await page.getByRole('button', { name: 'View your Moment, unseen', exact: true }).click();
+  await carousel.getByRole('button', { name: 'Go to Moment 3', exact: true }).click();
+  await expect(carousel.getByRole('status')).toHaveText('3 / 3');
+  await expect(carousel.getByRole('button', { name: 'Next Moment', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  const seenRing = page.getByRole('button', { name: 'View your Moment, seen', exact: true });
+  await expect(seenRing).toHaveCount(1);
+  await expect(seenRing.locator(':scope > span').first()).toHaveAttribute('style', /border-color: var\(--line\)/);
+  await page.reload(); await seenRing.click();
+  await carousel.getByRole('button', { name: 'Go to Moment 2', exact: true }).click();
+  const before = await ownFrames();
+  await page.getByRole('button', { name: 'Delete Moment', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+  expect((await ownFrames()).map(frame => frame.id)).toEqual([before[0].id, before[2].id]);
+  await expect(seenRing).toHaveCount(1);
+  await seenRing.click(); await expect(carousel.getByRole('status')).toHaveText('1 / 2');
+});

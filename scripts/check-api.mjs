@@ -16,6 +16,7 @@ const signin = (await import('../api/auth/signin.js')).default;
 const signout = (await import('../api/auth/signout.js')).default;
 const me = (await import('../api/auth/me.js')).default;
 const health = (await import('../api/health.js')).default;
+const usernameAvailable = (await import('../api/auth/username-available.js')).default;
 
 function adapt(handler) {
   return async (request) => {
@@ -33,7 +34,7 @@ function adapt(handler) {
   };
 }
 
-const S = { signup: adapt(signup), signin: adapt(signin), signout: adapt(signout), me: adapt(me), health: adapt(health) };
+const S = { signup: adapt(signup), signin: adapt(signin), signout: adapt(signout), me: adapt(me), health: adapt(health), usernameAvailable: adapt(usernameAvailable) };
 const post = (path, body, cookie) => new Request(`https://x.test/api/${path}`, {
   method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
   body: JSON.stringify(body),
@@ -73,6 +74,9 @@ const badPw = await S.signup(post('auth/signup', { email: `x-${unique}@example.c
 check('weak password → 400', badPw.status === 400, `got ${badPw.status}`);
 const badName = await S.signup(post('auth/signup', { email: `y-${unique}@example.com`, username: 'bad name!', password }));
 check('invalid username → 400', badName.status === 400, `got ${badName.status}`);
+const withProfile = await S.signup(post('auth/signup', { email: `p-${unique}@example.com`, username: `prof_${unique}`, password, name: 'Profiler', city: 'Jaipur', roles: ['creator'], interests: ['filmmaking'], availability: 'weekends', experience: 'intermediate' }));
+const profiled = await withProfile.json().catch(() => ({}));
+check('signup saves profile fields', withProfile.status === 201 && profiled.user?.name === 'Profiler' && profiled.user?.city === 'Jaipur' && profiled.user?.roles?.[0] === 'creator' && profiled.user?.availability === 'weekends', `got ${withProfile.status} ${JSON.stringify(profiled.user ?? {}).slice(0, 120)}`);
 
 console.log('signin:');
 const wrong = await S.signin(post('auth/signin', { email, password: 'wrong-password-123' }));
@@ -97,6 +101,14 @@ const out = await S.signout(post('auth/signout', {}, signinCookie));
 check('signout → 200', out.status === 200, `got ${out.status}`);
 const after = await S.me(get('auth/me', signinCookie));
 check('revoked session rejected after signout', after.status === 401, `got ${after.status}`);
+
+console.log('username availability:');
+const taken = await S.usernameAvailable(get('auth/username-available?u=' + encodeURIComponent(username)));
+check('taken username → available:false', (await taken.json()).available === false, `got ${taken.status}`);
+const free = await S.usernameAvailable(get('auth/username-available?u=brandnew_' + unique));
+check('free username → available:true', (await free.json()).available === true, `got ${free.status}`);
+const invalid = await S.usernameAvailable(get('auth/username-available?u=bad%20name'));
+check('invalid username → available:false', (await invalid.json()).available === false, `got ${invalid.status}`);
 
 console.log(`\n${pass} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

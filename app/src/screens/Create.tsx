@@ -4,7 +4,7 @@ import { ArrowLeft, BookOpen, Check, CirclePlus, Flag, Handshake, HelpCircle, Ma
 import type { Circle, IntentType, PostKind } from '../domain/types';
 import { useActions, useCircles, useMe } from '../repo/store';
 import { navigate, useRoute } from '../routerStore';
-import { ImageUpload } from '../components/ImageUpload';
+import { MultiImageUpload } from '../components/MultiImageUpload';
 
 const kinds = [
   { kind: 'share', label: 'Share', Icon: Sparkles, hint: 'An idea, a discovery, or a little progress.', title: 'What would you like to share?', body: 'Tell the story. What did you learn or make?', intent: 'share' },
@@ -26,7 +26,7 @@ export function Create() {
   const [publishAs, setPublishAs] = useState<'post' | 'intent'>('post');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [photo, setPhoto] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
   const [imageBusy, setImageBusy] = useState(false);
   const [tags, setTags] = useState('');
   const [circleId, setCircleId] = useState(route.param?.startsWith('post:') ? route.param.slice(5) : '');
@@ -55,7 +55,7 @@ export function Create() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy || success) return;
+    if (busy || imageBusy || success) return;
     setError(''); setBusy(true);
     try {
       if (mode === 'circle') {
@@ -77,7 +77,7 @@ export function Create() {
           });
           setSuccess({ title: 'Your intent is out there.', description: 'Your original words are saved. Discover people whose goals complement yours.', destination: 'discover' });
         } else {
-          const post = actions.posts.create(kind, title, finalBody, split(tags), circleId || null, structured, photo || undefined);
+          const post = actions.posts.create(kind, title, finalBody, split(tags), circleId || null, structured, photos);
           setSuccess({ title: 'A little spark, shared.', description: circleId ? 'Your post is live in your circle.' : 'Your post is live in the community feed.', destination: post.circleId ? 'circle' : 'home', id: post.circleId ?? undefined });
         }
       }
@@ -86,7 +86,7 @@ export function Create() {
     } finally { setBusy(false); }
   }
 
-  if (success) return <main className="space-y-5 px-6 py-12 text-center"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent-text)]"><Check size={36} /></span><h1 className="text-3xl font-bold tracking-tight">{success.title}</h1><p className="text-sm leading-relaxed text-[var(--text-2)]">{success.description}</p><button className="btn btn-primary w-full" onClick={() => navigate(success.destination, success.id)}>{success.destination === 'circle' ? 'Go to circle' : success.destination === 'discover' ? 'Find your people' : 'Go to feed'}</button><button className="btn btn-ghost w-full" onClick={() => { setSuccess(null); setTitle(''); setBody(''); setPhoto(''); setExtra(''); setName(''); setPurpose(''); setGoal(''); setDescription(''); }}>Create something else</button></main>;
+  if (success) return <main className="space-y-5 px-6 py-12 text-center"><span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent-text)]"><Check size={36} /></span><h1 className="text-3xl font-bold tracking-tight">{success.title}</h1><p className="text-sm leading-relaxed text-[var(--text-2)]">{success.description}</p><button className="btn btn-primary w-full" onClick={() => navigate(success.destination, success.id)}>{success.destination === 'circle' ? 'Go to circle' : success.destination === 'discover' ? 'Find your people' : 'Go to feed'}</button><button className="btn btn-ghost w-full" onClick={() => { setSuccess(null); setTitle(''); setBody(''); setPhotos([]); setExtra(''); setName(''); setPurpose(''); setGoal(''); setDescription(''); }}>Create something else</button></main>;
 
   return <main className="space-y-5 px-5 pb-8 pt-5">
     <button className="btn btn-ghost -ml-3 px-3" onClick={() => navigate(circleId ? 'circle' : 'home', circleId || undefined)}><ArrowLeft size={19} /> Back</button>
@@ -108,7 +108,7 @@ export function Create() {
         </fieldset>}
         <label className="block space-y-2 text-sm font-medium"><span>Publish as</span><select className="input min-h-11" value={publishAs} onChange={event => setPublishAs(event.target.value as 'post' | 'intent')}><option value="post">Community post — start a conversation</option><option value="intent">Matching intent — find the right people</option></select></label>
         {publishAs === 'post' ? <>
-          <ImageUpload label="Attach post photo" value={photo} onChange={setPhoto} onBusyChange={setImageBusy} />
+          <MultiImageUpload label="Attach post photos" value={photos} onChange={setPhotos} onBusyChange={setImageBusy} />
           <label className="block space-y-2 text-sm font-medium"><span>Share with</span><select className="input min-h-11" value={circleId} onChange={event => setCircleId(event.target.value)}><option value="">Everyone · community feed</option>{myCircles.map(circle => <option key={circle.id} value={circle.id}>{circle.emoji} {circle.name}</option>)}</select></label>
           <label className="block space-y-2 text-sm font-medium"><span>Tags (optional, comma separated)</span><input className="input min-h-11" value={tags} maxLength={300} onChange={event => setTags(event.target.value)} placeholder="Design, filmmaking, building" /></label>
         </> : <p className="rounded-xl bg-[var(--accent-soft)] p-3 text-sm text-[var(--accent-text)]">Your public intent helps surface relevant people. It is saved separately from community posts, with your original words intact.</p>}

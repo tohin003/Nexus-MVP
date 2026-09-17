@@ -444,7 +444,7 @@ export function buildSeed(): AppState {
   return structuredClone({
     version: 1, meId: 'me', signedIn: false, onboardingComplete: false,
     users: seedUsers, intents: seedIntents, requests: seedRequests,
-    connections: seedConnections, conversations: seedConversations,
+    connections: seedConnections, follows: [], conversations: seedConversations,
     messages: seedMessages, posts: seedPosts, circles: seedCircles,
     stories: [
       { id: 'moment-aarav', userId: 'aarav', photo: '/avatars/aarav.jpg', caption: 'A little creative energy for today. Illustrative demo portrait.', createdAt: momentNow - HOUR, expiresAt: momentNow - HOUR + DAY, seenByMe: false },

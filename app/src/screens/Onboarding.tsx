@@ -1,10 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, AtSign, Check, CheckCircle2, Compass, HeartHandshake, MapPin, Search, ShieldCheck, Sparkles, Users, WandSparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, AtSign, Check, CheckCircle2, Compass, HeartHandshake, MapPin, Search, ShieldCheck, Sparkles, Users, WandSparkles, X } from 'lucide-react';
 import { AVAILABILITY_LABELS, CITIES, INTEREST_CATEGORIES, INTEREST_MAP, INTERESTS, SKILLS, interestLabel, skillLabel } from '../domain/ontology';
 import type { Availability, ExperienceLevel, GoalTag, IntentInterpretation, IntentType, Role, User } from '../domain/types';
 import { db, useMe, useNexus } from '../repo/store';
 import { auth, completeOnboarding, validateUsername } from '../services/repo';
+import { api } from '../services/api';
+import { activateAccount } from '../services/account';
+import { resetDemo } from '../repo/db';
 import { interpretIntent, matchPeople } from '../services/intelligence';
 import { navigate } from '../routerStore';
 
@@ -39,9 +42,10 @@ type Draft = {
   goals: GoalTag[]; interests: string[]; skills: string[]; needs: string[];
   availability: Availability; experience: ExperienceLevel; text: string;
   preview: IntentInterpretation | null;
+  email: string; password: string;
 };
 function initialDraft(me: User): Draft {
-  const empty: Draft = { userId: me.id, step: 0, adult: false, name: me.name, username: me.username, city: me.city, roles: me.roles.slice(0, 3), goals: [], interests: [], skills: [], needs: [], availability: me.availability, experience: me.experience, text: '', preview: null };
+  const empty: Draft = { userId: me.id, step: 0, adult: false, name: me.name, username: me.username, city: me.city, roles: me.roles.slice(0, 3), goals: [], interests: [], skills: [], needs: [], availability: me.availability, experience: me.experience, text: '', preview: null, email: '', password: '' };
   try {
     const saved: unknown = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null');
     if (!saved || typeof saved !== 'object') return empty;
@@ -61,6 +65,9 @@ function initialDraft(me: User): Draft {
       skills: strings('skills').filter((id) => SKILLS.some((skill) => skill.id === id)),
       needs: strings('needs').filter((id) => SKILLS.some((skill) => skill.id === id)),
       text: typeof value.text === 'string' ? value.text.slice(0, 3000) : '',
+      email: typeof value.email === 'string' ? value.email.slice(0, 254) : '',
+      // Never restore the password; the user retypes it on the final step.
+      password: '',
       availability: Object.keys(AVAILABILITY_LABELS).includes(String(value.availability)) ? value.availability as Availability : empty.availability,
       experience: ['beginner', 'intermediate', 'experienced'].includes(String(value.experience)) ? value.experience as ExperienceLevel : empty.experience,
     };
@@ -104,15 +111,33 @@ function NetworkMotif({ compact = false }: { compact?: boolean }) {
 
 export function Welcome() {
   const me = useMe();
-  const hasSavedDemo = useNexus(s => s.onboardingComplete || s.analyticsEvents.some(event => event.name === 'demo_sign_in'));
+  const hasSavedDemo = useNexus(s => s.authMode !== 'account' && s.authMode !== 'signup' && (s.onboardingComplete || s.analyticsEvents.some(event => event.name === 'demo_sign_in')));
   const onboardingComplete = useNexus(s => s.onboardingComplete);
-  const [signInInfo, setSignInInfo] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  function enter() {
+  // Real account sign-in (backend session cookie) vs the local demo resume.
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  async function enter(mode: 'demo' | 'signup') {
     setBusy(true); setError('');
-    try { auth.demoSignIn(); navigate(db.getState().onboardingComplete ? 'home' : 'onboarding'); }
-    catch (cause) { setError(errorMessage(cause)); setBusy(false); }
+    try {
+      if (mode === 'signup' || db.getState().authMode === 'account') await resetDemo();
+      auth.demoSignIn();
+      db.setState({ authMode: mode });
+      navigate(db.getState().onboardingComplete ? 'home' : 'onboarding');
+    } catch (cause) { setError(errorMessage(cause)); setBusy(false); }
+  }
+  async function realSignIn(event: FormEvent) {
+    event.preventDefault(); setError(''); setBusy(true);
+    const result = await api.signin({ email: email.trim(), password });
+    setBusy(false);
+    if (!result) { setError('Could not reach the sign-in service. Check your connection and try again.'); return; }
+    if (!result.ok) { setError(result.error); return; }
+    activateAccount(result.user);
+    setPassword('');
+    navigate('home');
   }
   return <main className="flex min-h-full flex-col px-7 pb-7 pt-8">
     <header className="flex items-center justify-between"><span className="text-lg font-extrabold tracking-[.25em]">NEXUS<span className="text-[var(--accent)]">.</span></span><span className="eyebrow rounded-full border border-[var(--line)] px-3 py-1.5">People → possibilities</span></header>
@@ -123,12 +148,23 @@ export function Welcome() {
     </div></div>
     <div className="space-y-3">
       {error && <p role="alert" className="rounded-xl bg-[var(--danger-soft)] p-3 text-sm text-[var(--danger)]">{error}</p>}
-      {hasSavedDemo ? <button type="button" className="btn btn-primary w-full" onClick={enter} disabled={busy}>{onboardingComplete ? `Resume demo as ${me.name.split(' ')[0]}` : 'Resume demo setup'} <ArrowRight size={17} aria-hidden="true" /></button>
-        : <button type="button" className="btn btn-primary w-full" onClick={enter} disabled={busy}>Get Started <ArrowRight size={17} aria-hidden="true" /></button>}
-      {!hasSavedDemo && <button type="button" className="btn btn-secondary w-full" onClick={enter} disabled={busy}>Continue with Demo</button>}
-      <p className="text-center text-xs text-[var(--text-2)]">Already here? <button type="button" onClick={() => hasSavedDemo ? enter() : setSignInInfo(true)} disabled={busy} className="min-h-11 px-2 font-semibold text-[var(--accent-text)]">Sign in</button></p>
-      {signInInfo && <p role="status" className="rounded-xl bg-[var(--accent-soft)] p-3 text-sm">No saved demo profile was found on this device. Choose Get Started or Continue with Demo to set one up. Online account sign-in is not available yet.</p>}
-      <p className="text-center text-[10px] leading-relaxed text-[var(--text-2)]">18+ community · Local demo, no password needed.<br />{hasSavedDemo ? 'Sign in resumes your saved local demo; unfinished setup continues where you left off in this tab.' : 'Get Started and Continue with Demo both begin local profile setup, not guest browsing.'}</p>
+      {showSignIn ? <form onSubmit={realSignIn} className="space-y-3">
+        <Field label="Email"><input className="input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" required /></Field>
+        <Field label="Password">
+          <div className="relative"><input aria-label="Password" className="input pr-16" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" required minLength={10} />
+            <button type="button" className="absolute top-3.5 right-3 min-h-8 rounded-lg px-2 text-xs font-semibold text-[var(--accent-text)]" onClick={() => setShowPassword(!showPassword)} aria-pressed={showPassword}>{showPassword ? 'Hide' : 'Show'}</button>
+          </div>
+        </Field>
+        <button type="submit" className="btn btn-primary w-full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}<ArrowRight size={17} aria-hidden="true" /></button>
+        <button type="button" className="btn btn-ghost w-full" onClick={() => { setShowSignIn(false); setError(''); }}>Back</button>
+      </form>
+        : <>
+          {hasSavedDemo ? <button type="button" className="btn btn-primary w-full" onClick={() => enter('demo')} disabled={busy}>{onboardingComplete ? `Resume demo as ${me.name.split(' ')[0]}` : 'Resume demo setup'} <ArrowRight size={17} aria-hidden="true" /></button>
+            : <button type="button" className="btn btn-primary w-full" onClick={() => enter('signup')} disabled={busy}>Get Started <ArrowRight size={17} aria-hidden="true" /></button>}
+          {!hasSavedDemo && <button type="button" className="btn btn-secondary w-full" onClick={() => enter('demo')} disabled={busy}>Continue with Demo</button>}
+          <p className="text-center text-xs text-[var(--text-2)]">Already have an account? <button type="button" onClick={() => setShowSignIn(true)} disabled={busy} className="min-h-11 px-2 font-semibold text-[var(--accent-text)]">Sign in</button></p>
+        </>}
+      <p className="text-center text-[10px] leading-relaxed text-[var(--text-2)]">18+ community · {hasSavedDemo ? 'Sign in resumes your saved local demo; unfinished setup continues where you left off in this tab.' : 'Get Started and Continue with Demo both begin local profile setup, not guest browsing.'}</p>
     </div>
   </main>;
 }
@@ -154,18 +190,34 @@ function SkillPicker({ selected, onToggle, label }: { selected: string[]; onTogg
 export function Onboarding() {
   const me = useMe();
   const signedIn = useNexus((state) => state.signedIn);
+  const realSignup = useNexus((state) => state.authMode === 'signup');
+  const [showPassword, setShowPassword] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => initialDraft(me));
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Proposed debounce, not a claim about another platform's implementation.
+  const [usernameState, setUsernameState] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'offline'>('idle');
+  useEffect(() => {
+    if (!realSignup) return;
+    const username = draft.username.trim();
+    if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username)) { setUsernameState('invalid'); return; }
+    let active = true;
+    setUsernameState('checking');
+    const timer = window.setTimeout(async () => {
+      const available = await api.usernameAvailable(username);
+      if (active) setUsernameState(available === null ? 'offline' : available ? 'available' : 'taken');
+    }, 350);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [draft.username, realSignup]);
   const heading = useRef<HTMLHeadingElement>(null);
   const submitting = useRef(false);
   const { step, preview } = draft;
   const update = (fields: Partial<Draft>) => {
     const nextDraft = { ...draft, ...fields };
     setDraft(nextDraft);
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(nextDraft)); setStorageWarning(false); }
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...nextDraft, password: '' })); setStorageWarning(false); }
     catch { setStorageWarning(true); }
   };
   useEffect(() => { if (!signedIn) navigate('welcome'); }, [signedIn]);
@@ -179,13 +231,16 @@ export function Onboarding() {
     if (!draft.adult) return 'Please confirm you are 18 or older to continue.';
     if (!draft.name.trim()) return 'What should we call you? Add your name.';
     if (!draft.username.trim()) return 'Pick a username so people can find you.';
-    try { validateUsername(draft.username); } catch (cause) { return cause instanceof Error ? cause.message : 'That username is not available.'; }
+    if (realSignup) {
+      if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(draft.username.trim())) return 'Use 3–40 letters, numbers, dots, dashes or underscores.';
+      if (usernameState === 'taken') return 'That username is taken. Try another.';
+    } else { try { validateUsername(draft.username); } catch (cause) { return cause instanceof Error ? cause.message : 'That username is not available.'; } }
     if (!draft.city.trim()) return 'Add your city, or enter Remote.';
     if (!draft.roles.length) return 'Choose at least one role that describes you.';
     if (!draft.goals.length) return 'Choose what brings you here. Just exploring is welcome, too.';
     return '';
   }
-  function next(event: FormEvent) {
+  async function next(event: FormEvent) {
     event.preventDefault(); setError('');
     if (step === 0) {
       const message = profileError();
@@ -199,12 +254,21 @@ export function Onboarding() {
     }
     if (step < 5) { update({ step: step + 1 }); setQuery(''); return; }
     if (submitting.current) return;
+    if (usernameState === 'taken') { setError('That username is taken. Pick another one.'); return; }
+    if (realSignup && (!draft.email.trim() || draft.password.length < 10 || draft.password.length > 200)) { setError('Add your email and a password of at least 10 characters to create your account.'); return; }
     const message = profileError();
     if (message) { update({ step: 0 }); setError(message); return; }
     if (!preview || !draft.text.trim() || !preview.goal.trim() || !preview.location.trim()) { setError('Add your original intent, a goal, and a location before continuing.'); return; }
     submitting.current = true; setBusy(true);
     try {
-      // Profile, username and intent commit atomically; failures publish no intent.
+      if (realSignup) {
+        const account = await api.signup({ email: draft.email.trim(), username: draft.username.trim(), password: draft.password,
+          name: draft.name.trim(), city: draft.city.trim(), roles: draft.roles, interests: draft.interests,
+          skills: draft.skills, needs: draft.needs, availability: draft.availability, experience: draft.experience });
+        if (!account) throw new Error('Could not reach the account service. Your draft is here; please retry.');
+        if (!account.ok) throw new Error(account.error);
+        activateAccount(account.user);
+      }
       completeOnboarding({ name: draft.name.trim(), username: draft.username.trim(), city: draft.city.trim(), roles: draft.roles, interests: draft.interests, skills: draft.skills, needs: draft.needs, availability: draft.availability, experience: draft.experience, currently: preview.goal, headline: draft.roles.map(pretty).join(' · ') }, { text: draft.text, interpretation: preview });
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* Completion must work without browser storage. */ }
       navigate('building');
@@ -222,7 +286,17 @@ export function Onboarding() {
       {step === 0 && <>
         <label className="card flex min-h-14 cursor-pointer items-start gap-3 p-4 text-sm"><input type="checkbox" checked={draft.adult} onChange={(event) => update({ adult: event.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]" required /><span>I confirm I am 18 or older.<span className="mt-1 block text-xs text-[var(--text-2)]">NEXUS is a community for adults.</span></span></label>
         <Field label="What should we call you?"><input className="input" autoComplete="given-name" value={draft.name} onChange={(event) => update({ name: event.target.value })} placeholder="Your name" maxLength={100} required /></Field>
-        <Field label="Pick a username" hint="Your unique handle, without the @. Letters, numbers, dots, dashes or underscores."><div className="relative"><AtSign size={17} aria-hidden="true" className="pointer-events-none absolute top-4 left-4 text-[var(--text-2)]" /><input className="input pl-11" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={draft.username} onChange={(event) => update({ username: event.target.value })} placeholder="e.g. prince.edits" maxLength={41} required /></div></Field>
+        <Field label="Pick a username" hint="Your unique handle, without the @. Letters, numbers, dots, dashes or underscores.">
+          <div className="relative"><AtSign size={17} aria-hidden="true" className="pointer-events-none absolute top-4 left-4 text-[var(--text-2)]" /><input aria-label="Pick a username" className="input pl-11" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={draft.username} onChange={(event) => update({ username: event.target.value })} placeholder="e.g. prince.edits" maxLength={41} required aria-describedby="username-status" /></div>
+          {/* Status lives outside the <label> so it never pollutes the field's accessible name. */}
+        </Field>
+        <div aria-live="polite">
+          {usernameState === 'checking' && <p id="username-status" role="status" className="flex items-center gap-1.5 text-xs text-[var(--text-2)]"><span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--line-strong)] border-t-[var(--accent)]" aria-hidden="true" />Checking availability…</p>}
+          {usernameState === 'available' && <p id="username-status" role="status" className="flex items-center gap-1.5 text-xs text-[var(--good)]"><Check size={13} aria-hidden="true" />@{draft.username.trim()} is available</p>}
+          {usernameState === 'taken' && <p id="username-status" role="alert" className="flex items-center gap-1.5 text-xs text-[var(--danger)]"><X size={13} aria-hidden="true" />That username is taken. Try another.</p>}
+          {usernameState === 'invalid' && <p id="username-status" className="text-xs text-[var(--text-2)]">Letters, numbers, dots, dashes or underscores only.</p>}
+          {usernameState === 'offline' && <p id="username-status" className="text-xs text-[var(--text-2)]">Availability check unavailable right now — you can continue; we'll verify at the end.</p>}
+        </div>
         <Field label="Your city" hint="City only. We never need your precise location."><div className="relative"><MapPin size={17} aria-hidden="true" className="pointer-events-none absolute top-4 left-4 text-[var(--text-2)]" /><input className="input pl-11" autoComplete="address-level2" list="nexus-cities" value={draft.city} onChange={(event) => update({ city: event.target.value })} placeholder="Jaipur, or Remote" maxLength={100} required /><datalist id="nexus-cities">{CITIES.map((city) => <option key={city} value={city} />)}</datalist></div></Field>
         <Choices label="What describes you?" options={ROLES.map((id) => ({ id, label: pretty(id) }))} selected={draft.roles} onToggle={(id) => update({ roles: toggle(draft.roles, id) as Role[] })} max={3} />
         <Choices label="What brings you here?" options={GOALS} selected={draft.goals} onToggle={(id) => update({ goals: toggle(draft.goals, id) as GoalTag[] })} />
@@ -244,6 +318,12 @@ export function Onboarding() {
         <p className="flex items-start gap-2 text-xs leading-relaxed text-[var(--text-2)]"><ShieldCheck size={16} className="shrink-0" aria-hidden="true" />Local, rule-based interpretation — not a live AI service. Review everything before it becomes a public demo intent.</p>
       </>}
       {step === 5 && preview && <>
+        {realSignup && <div className="card space-y-4 border-[var(--accent)] p-4"><p className="flex items-center gap-2 text-sm font-semibold text-[var(--accent-text)]"><ShieldCheck size={17} aria-hidden="true" />Create your account</p>
+          <p className="text-xs leading-relaxed text-[var(--text-2)]">Last step: choose your email and password so you can sign in on any device. Your profile and intent below are saved first.</p>
+          <Field label="Email"><input className="input" type="email" autoComplete="email" value={draft.email} onChange={(event) => update({ email: event.target.value })} placeholder="you@example.com" maxLength={254} required /></Field>
+          <Field label="Password" hint="At least 10 characters."><div className="relative"><input aria-label="Password" className="input pr-16" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={draft.password} onChange={(event) => update({ password: event.target.value })} placeholder="Create a password" minLength={10} maxLength={200} required />
+            <button type="button" className="absolute top-3.5 right-3 min-h-8 rounded-lg px-2 text-xs font-semibold text-[var(--accent-text)]" onClick={() => setShowPassword(!showPassword)} aria-pressed={showPassword} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div></Field>
+        </div>}
         <div className="rounded-2xl bg-[var(--accent-soft)] p-4 text-xs leading-relaxed text-[var(--accent-text)]"><Sparkles size={16} className="mb-2" aria-hidden="true" />A starting point, not a label. Your interests and the value you can exchange help us suggest people.</div>
         <Field label="Your original words" hint="Editing your words refreshes the interpretation below."><textarea className="input min-h-28 resize-y" value={draft.text} maxLength={3000} required onChange={(event) => update({ text: event.target.value, preview: interpret(event.target.value) })} /></Field>
         <div className="card space-y-5 p-4"><p className="eyebrow">Our interpretation · editable</p>

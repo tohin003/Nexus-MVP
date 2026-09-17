@@ -36,12 +36,14 @@ async function reportAarav(page: Page, detail: string) {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
-test('fresh sign-in explains local setup; username collision, draft reload and back exit are safe', async ({ page }) => {
+test('fresh sign-in shows real account form; username collision, draft reload and back exit are safe', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('No saved demo profile was found on this device.');
   await expect(page.getByRole('heading', { name: /Find your people/i })).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
   expect(await page.evaluate(key => localStorage.getItem(key), STORAGE_KEY)).toBeNull();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await page.getByRole('button', { name: 'Continue with Demo', exact: true }).click();
   await expect(page).toHaveURL(/#onboarding$/);
   const before = await state(page);
@@ -235,7 +237,7 @@ test('signout keeps profile data but gates protected screens after reload', asyn
   await expect(page.getByRole('button', { name: 'Save profile' })).toHaveCount(0);
   await page.goto('/#welcome');
   await expect(page.getByRole('button', { name: 'Resume demo as Prince', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Resume demo as Prince', exact: true }).click();
   await expect(page).toHaveURL(/#home$/);
   await expect(page.getByRole('heading', { name: /Good things start/ })).toBeVisible();
   await page.goto('/#onboarding');

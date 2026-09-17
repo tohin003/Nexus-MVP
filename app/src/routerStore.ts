@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
-export type RouteName = 'welcome' | 'onboarding' | 'building' | 'first-matches' | 'home' | 'discover' | 'circles' | 'me' | 'user' | 'chat' | 'inbox' | 'circle' | 'create' | 'notifications' | 'settings' | 'admin' | 'blocked' | 'edit-profile';
+export type RouteName = 'welcome' | 'onboarding' | 'building' | 'first-matches' | 'home' | 'discover' | 'circles' | 'me' | 'user' | 'chat' | 'inbox' | 'circle' | 'create' | 'notifications' | 'settings' | 'admin' | 'blocked' | 'edit-profile' | 'user-followers' | 'user-following' | 'user-posts';
 export type Route = { name: RouteName; param?: string };
-const names: RouteName[] = ['welcome','onboarding','building','first-matches','home','discover','circles','me','user','chat','inbox','circle','create','notifications','settings','admin','blocked','edit-profile'];
+const names: RouteName[] = ['welcome','onboarding','building','first-matches','home','discover','circles','me','user','chat','inbox','circle','create','notifications','settings','admin','blocked','edit-profile','user-followers','user-following','user-posts'];
 function readHash(): Route {
   const [name, param] = window.location.hash.slice(1).split('/');
   return { name: names.includes(name as RouteName) ? name as RouteName : 'welcome', param: param ? decodeURIComponent(param) : undefined };

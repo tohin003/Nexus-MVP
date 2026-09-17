@@ -17,6 +17,7 @@ import { CircleDetail } from '../screens/CircleDetail';
 import { Create } from '../screens/Create';
 import { Settings, Blocked, Admin } from '../screens/Settings';
 import { EditProfile } from '../screens/EditProfile';
+import { ProfileList } from '../screens/ProfileList';
 
 export function Screen({ route }: { route: Route }) {
   const signedIn = useNexus(s => s.signedIn);
@@ -32,6 +33,9 @@ export function Screen({ route }: { route: Route }) {
     case 'home': return <Home />;
     case 'discover': return <Discover />;
     case 'user': return <UserDetail />;
+    case 'user-followers': return <ProfileList kind="followers" />;
+    case 'user-following': return <ProfileList kind="following" />;
+    case 'user-posts': return <ProfileList kind="posts" />;
     case 'inbox': return <Inbox />;
     case 'chat': return <Chat />;
     case 'notifications': return <Notifications />;

@@ -1,8 +1,8 @@
 import { db, getDatabaseGeneration, preflightMedia } from '../repo/db';
-import { isUploadedImage, validateMedia } from './image';
+import { isUploadedImage, MAX_STORY_BATCH, postPhotos, validateMedia, validateMediaBatch } from './image';
 import type { AnalyticsEvent, AppState } from '../repo/db';
 import type {
-  Circle, ConnectionRequest, Conversation, Intent, IntentInterpretation, Message,
+  Circle, ConnectionRequest, Conversation, Follow, Intent, IntentInterpretation, Message,
   Notification, Post, PostKind, Privacy, Reaction, Report, Story, User,
 } from '../domain/types';
 import { interpretIntent, matchPeople, introduction } from './intelligence';
@@ -28,7 +28,7 @@ function mutate(update: StateUpdate) {
   // Compare each record, not total bytes: replacing a photo with a smaller one
   // still needs a real quota check before callers may clear their draft.
   const addedMedia = next.users.some((user) => isUploadedImage(user.avatar) && user.avatar !== before.users.find((item) => item.id === user.id)?.avatar)
-    || next.posts.some((post) => post.photo && post.photo !== before.posts.find((item) => item.id === post.id)?.photo)
+    || next.posts.some((post) => { const previous = before.posts.find((item) => item.id === post.id); return postPhotos(post).some((photo, index) => photo !== (previous ? postPhotos(previous)[index] : undefined)); })
     || next.stories.some((story) => isUploadedImage(story.photo) && story.photo !== before.stories.find((item) => item.id === story.id)?.photo);
   if (addedMedia) preflightMedia(next);
   db.setState(next);
@@ -157,6 +157,23 @@ export const intents = {
   },
 };
 
+export const follows = {
+  follow(userId: string): Follow {
+    const state = db.getState();
+    allowedOther(userId, state);
+    if (!person(userId, state).privacy.discoverable) throw new Error('This profile is not available to follow.');
+    const existing = state.follows.find((item) => item.fromUserId === state.meId && item.toUserId === userId);
+    if (existing) return existing;
+    const follow: Follow = { id: uid('follow'), fromUserId: state.meId, toUserId: userId, createdAt: now() };
+    mutate((current) => ({ follows: [...current.follows, follow] }));
+    return follow;
+  },
+  unfollow(userId: string): void {
+    // Unfollowing remains possible if the target later becomes hidden or suspended.
+    mutate((state) => ({ follows: state.follows.filter((item) => !(item.fromUserId === state.meId && item.toUserId === userId)) }));
+  },
+};
+
 export const connections = {
   request(userId: string, why: string): ConnectionRequest {
     return connections.connect(db.getState().meId, userId, why);
@@ -214,6 +231,21 @@ export const connections = {
     if (request.toUserId !== db.getState().meId) throw new Error('Only the recipient can decline this request.');
     if (request.status !== 'pending') return;
     mutate((state) => ({ requests: state.requests.map((item) => item.id === id ? { ...item, status: 'declined' as const, respondedAt: now() } : item), notifications: state.notifications.map((item) => item.kind === 'connection-request' && item.meta?.userId === request.fromUserId ? { ...item, read: true } : item) }));
+  },
+  cancel(id: string): void {
+    const state = db.getState();
+    requireActor(state);
+    const request = state.requests.find((item) => item.id === id);
+    if (!request) throw new Error('This connection request could not be found.');
+    if (request.fromUserId !== state.meId) throw new Error('Only the sender can cancel this request.');
+    if (request.status !== 'pending' || state.connections.some((item) => pair(item.aUserId, item.bUserId, request.fromUserId, request.toUserId))) {
+      throw new Error('Only pending requests can be cancelled. Existing connections are unchanged.');
+    }
+    mutate((current) => ({
+      requests: current.requests.filter((item) => item.id !== id),
+      notifications: current.notifications.map((item) => item.kind === 'connection-request' && item.meta?.userId === request.toUserId ? { ...item, read: true } : item),
+      analyticsEvents: track(current, 'connection_cancelled', { userId: request.toUserId }),
+    }));
   },
   pass(id: string) {
     if (db.getState().requests.some((item) => item.id === id)) return connections.decline(id);
@@ -327,7 +359,7 @@ export const messages = {
 export const blocks = {
   add(userId: string) {
     allowedOther(userId);
-    mutate((state) => ({ blockedUsers: [...state.blockedUsers, { userId, blockedAt: now() }], requests: state.requests.map((item) => item.status === 'pending' && (item.fromUserId === userId || item.toUserId === userId) ? { ...item, status: 'declined' as const, respondedAt: now() } : item), notifications: state.notifications.filter((item) => item.actorUserId !== userId), analyticsEvents: track(state, 'user_blocked', { userId }) }));
+    mutate((state) => ({ blockedUsers: [...state.blockedUsers, { userId, blockedAt: now() }], follows: state.follows.filter((item) => !pair(item.fromUserId, item.toUserId, state.meId, userId)), requests: state.requests.map((item) => item.status === 'pending' && (item.fromUserId === userId || item.toUserId === userId) ? { ...item, status: 'declined' as const, respondedAt: now() } : item), notifications: state.notifications.filter((item) => item.actorUserId !== userId), analyticsEvents: track(state, 'user_blocked', { userId }) }));
   },
   remove(userId: string) { mutate((state) => ({ blockedUsers: state.blockedUsers.filter((item) => item.userId !== userId) })); },
 };
@@ -402,14 +434,15 @@ function accessiblePost(id: string): Post {
   return post;
 }
 export const posts = {
-  create(kind: PostKind, title: string, body: string, tags: string[] = [], circleId: string | null = null, structured?: Post['structured'], photo?: string): Post {
-    if (photo !== undefined) validateMedia(photo);
+  create(kind: PostKind, title: string, body: string, tags: string[] = [], circleId: string | null = null, structured?: Post['structured'], photo?: string | string[]): Post {
+    const photos = photo === undefined ? [] : typeof photo === 'string' ? [photo] : [...photo];
+    validateMediaBatch(photos);
     if (!['share', 'ask', 'collaborate', 'teach', 'challenge', 'meet'].includes(kind)) throw new Error('Choose a supported post type.');
     if (circleId) {
       const circle = db.getState().circles.find((item) => item.id === circleId);
       if (!circle?.memberIds.includes(db.getState().meId)) throw new Error('Join the circle before posting.');
     }
-    const post: Post = { id: uid('post'), userId: db.getState().meId, kind, title: required(title, 'Post title', 200), body: required(body, 'Post body'), ...(photo === undefined ? {} : { photo }), tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 12), circleId, createdAt: now(), structured: structured ? { ...structured, skillsNeeded: [...structured.skillsNeeded] } : undefined, reactions: { useful: 0, interesting: 0, 'lets-do-it': 0, support: 0 }, myReaction: null, comments: [], helpedBy: [], iCanHelp: false };
+    const post: Post = { id: uid('post'), userId: db.getState().meId, kind, title: required(title, 'Post title', 200), body: required(body, 'Post body'), ...(photos.length ? { photo: photos[0], photos } : {}), tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 12), circleId, createdAt: now(), structured: structured ? { ...structured, skillsNeeded: [...structured.skillsNeeded] } : undefined, reactions: { useful: 0, interesting: 0, 'lets-do-it': 0, support: 0 }, myReaction: null, comments: [], helpedBy: [], iCanHelp: false };
     mutate((state) => ({ posts: [post, ...state.posts], analyticsEvents: track(state, 'post_created', { postId: post.id, kind }) }));
     return post;
   },
@@ -451,13 +484,18 @@ export const stories = {
     }).sort((a, b) => b.createdAt - a.createdAt);
   },
   create(photo: string, caption = ''): Story {
+    return stories.createBatch([photo], caption)[0];
+  },
+  /** NEXUS batch limit: 20 separate frames, one caption applied to each, one atomic save. */
+  createBatch(photos: readonly string[], caption = ''): Story[] {
     requireActor();
-    validateMedia(photo);
+    validateMediaBatch(photos, MAX_STORY_BATCH, true);
     if (caption.length > 280) throw new Error('Moment caption must be 280 characters or fewer.');
     const timestamp = now();
-    const story: Story = { id: uid('moment'), userId: db.getState().meId, photo, caption: caption.trim(), createdAt: timestamp, expiresAt: timestamp + 86_400_000, seenByMe: false };
-    mutate((state) => ({ stories: [story, ...state.stories.filter((item) => item.expiresAt > timestamp)], analyticsEvents: track(state, 'moment_created', { storyId: story.id }) }));
-    return story;
+    const batch: Story[] = photos.map((photo) => ({ id: uid('moment'), userId: db.getState().meId, photo, caption: caption.trim(), createdAt: timestamp, expiresAt: timestamp + 86_400_000, seenByMe: false }));
+    // Equal timestamps intentionally retain array order under the stable list sort.
+    mutate((state) => ({ stories: [...batch, ...state.stories.filter((item) => item.expiresAt > timestamp)], analyticsEvents: track(state, 'moments_created', { count: batch.length }) }));
+    return batch;
   },
   markSeen(id: string): void {
     requireActor();
@@ -566,5 +604,5 @@ export const moderation = {
 };
 
 /** UI-facing repository: all writes above flow through the single vanilla store. */
-export const repo = { auth, completeOnboarding, profile, intents, connections, messages, blocks, mutes, reports, circles, posts, stories, notifications, privacy, moderation };
+export const repo = { auth, completeOnboarding, profile, intents, connections, follows, messages, blocks, mutes, reports, circles, posts, stories, notifications, privacy, moderation };
 export default repo;
